@@ -1,6 +1,7 @@
 import os
 import re
 import uuid
+import hashlib
 import contextvars
 from pathlib import Path
 from datetime import datetime, timezone, date
@@ -12,6 +13,7 @@ load_dotenv(Path(__file__).parent / ".env")
 
 BASE_DB = os.environ["DB_NAME"]
 PRIMARY_TENANT = "naidu"
+MAX_MONGO_DATABASE_NAME_BYTES = 63
 
 client = AsyncIOMotorClient(os.environ["MONGO_URL"])
 platform_db = client[f"{BASE_DB}_platform"]
@@ -24,9 +26,28 @@ def slug_label(text, n=28):
     return (t or "biz")[:n]
 
 
-def tenant_key(business_name, owner_name):
+def tenant_key(business_name, owner_name, collision_index=None):
     """Readable tenant id: BusinessName_OwnerName"""
-    return f"{slug_label(business_name)}_{slug_label(owner_name)}"
+    readable = f"{slug_label(business_name)}_{slug_label(owner_name)}"
+    suffix = f"_{collision_index}" if collision_index is not None else ""
+    max_id_bytes = (
+        MAX_MONGO_DATABASE_NAME_BYTES
+        - len(BASE_DB.encode("utf-8"))
+        - 1
+        - len(suffix.encode("utf-8"))
+    )
+    if max_id_bytes < 1:
+        raise ValueError("DB_NAME is too long to create a tenant database.")
+    if len(readable.encode("utf-8")) <= max_id_bytes:
+        return f"{readable}{suffix}"
+
+    digest = hashlib.sha256(readable.encode("utf-8")).hexdigest()[:8]
+    prefix_bytes = max_id_bytes - len(digest) - 1
+    if prefix_bytes > 0:
+        readable = f"{readable[:prefix_bytes].rstrip('_')}_{digest}"
+    else:
+        readable = digest[:max_id_bytes]
+    return f"{readable}{suffix}"
 
 
 def tenant_db_name(tenant_id):

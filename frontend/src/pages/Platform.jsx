@@ -153,7 +153,7 @@ const tenantSubscriptionAccess = (tenant) => {
 
 const blank = {
   name: "", owner_name: "", owner_username: "", owner_password: "",
-  mobile: "", city: "", state: "", plan: "Custom", plan_id: "", license_days: 365,
+  email: "", mobile: "", city: "", state: "", plan: "Custom", plan_id: "", license_days: 365,
 };
 
 const daysUntil = (dateValue) => {
@@ -230,7 +230,7 @@ export default function Platform({ initialView = "clients" }) {
     && JSON.stringify(accessDraft) !== JSON.stringify(savedAccess));
   const normalizedSearch = tenantSearch.trim().toLowerCase();
   const filteredTenants = data.tenants.filter((tenant) => {
-    const searchable = [tenant.name, tenant.owner_name, tenant.owner_username, tenant.city,
+    const searchable = [tenant.name, tenant.owner_name, tenant.owner_username, tenant.email, tenant.city,
       tenant.state, tenant.plan, tenant.id].filter(Boolean).join(" ").toLowerCase();
     const matchesSearch = !normalizedSearch || searchable.includes(normalizedSearch);
     const days = daysUntil(tenant.license_expiry);
@@ -660,6 +660,7 @@ export default function Platform({ initialView = "clients" }) {
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-bold text-ink">{tenant.name}</span>
                       <span className="mt-0.5 block truncate text-xs text-muted">{tenant.owner_name} · @{tenant.owner_username}</span>
+                      {tenant.email && <span className="mt-0.5 block truncate text-xs text-muted">{tenant.email}</span>}
                       {(tenantStatusFilter === "attention" || tenantStatusFilter === "renewal") && <span className="mt-1 block truncate text-[10px] font-semibold text-amber-800">
                         {tenantStatusFilter === "renewal"
                           ? days < 0 ? `${Math.abs(days)} days overdue` : `Expires in ${days} days`
@@ -713,6 +714,7 @@ export default function Platform({ initialView = "clients" }) {
             <div className="min-w-0">
               <h2 className="truncate font-head text-lg font-bold text-ink">{selectedTenant.name}</h2>
               <p className="truncate text-sm text-muted">{selectedTenant.owner_name} · @{selectedTenant.owner_username}</p>
+              {selectedTenant.email && <p className="truncate text-xs text-muted">{selectedTenant.email}</p>}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -1123,15 +1125,20 @@ export default function Platform({ initialView = "clients" }) {
       <Modal open={!!form} onClose={() => setForm(null)} title="Issue a New Business Licence"
         subtitle="A separate database is created for this business — their data never mixes with anyone else's"
         footer={<><Btn variant="s" onClick={() => setForm(null)}>Cancel</Btn>
-          <Btn disabled={busy || !form?.name || !form?.owner_username || !form?.owner_password} data-testid="save-tenant" onClick={save}>Create Licence</Btn></>}>
+          <Btn disabled={busy || !form?.name?.trim() || !form?.owner_name?.trim()
+            || !form?.owner_username?.trim() || !form?.owner_password}
+            data-testid="save-tenant" onClick={save}>Create Licence</Btn></>}>
         {form && (
           <div className="grid gap-3 md:grid-cols-2">
-            <Input label="Business Name" required value={form.name} data-testid="tenant-name" onChange={(e) => set("name", e.target.value)} />
-            <Input label="Owner Name" required value={form.owner_name} data-testid="tenant-owner" onChange={(e) => set("owner_name", e.target.value)} />
-            <Input label="Owner Login Username" required value={form.owner_username} data-testid="tenant-username"
-              onChange={(e) => set("owner_username", e.target.value.toLowerCase().trim())} />
-            <Input label="Owner Password" required value={form.owner_password} data-testid="tenant-password" onChange={(e) => set("owner_password", e.target.value)} />
-            <Input label="Mobile" value={form.mobile} onChange={(e) => set("mobile", e.target.value)} />
+          <Input label="Business Name" required value={form.name} data-testid="tenant-name" onChange={(e) => set("name", e.target.value)} />
+          <Input label="Owner Name" required value={form.owner_name} data-testid="tenant-owner" onChange={(e) => set("owner_name", e.target.value)} />
+          <Input label="Owner Login Username" required value={form.owner_username} data-testid="tenant-username"
+            onChange={(e) => set("owner_username", e.target.value.toLowerCase().trim())} />
+          <Input label="Owner Password" required value={form.owner_password} data-testid="tenant-password" onChange={(e) => set("owner_password", e.target.value)} />
+          <Input label="Contact Email (optional)" type="email" value={form.email} data-testid="tenant-email"
+            hint="Saved as a contact address. Email sending is not enabled."
+            onChange={(e) => set("email", e.target.value)} />
+          <Input label="Mobile" value={form.mobile} onChange={(e) => set("mobile", e.target.value)} />
             <Input label="City" value={form.city} onChange={(e) => set("city", e.target.value)} />
             <Input label="State" value={form.state} onChange={(e) => set("state", e.target.value)} />
             <Select label="Subscription plan" value={form.plan_id || ""}

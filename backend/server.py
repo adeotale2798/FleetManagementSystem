@@ -2058,6 +2058,7 @@ class TenantIn(BaseModel):
     owner_name: str
     owner_username: str
     owner_password: str
+    email: Optional[str] = ""
     mobile: Optional[str] = ""
     city: Optional[str] = ""
     state: Optional[str] = ""
@@ -2361,7 +2362,7 @@ async def create_tenant(body: TenantIn, u=Depends(require_super)):
     base = tenant_key(body.name, body.owner_name)
     tid, n = base, 2
     while await platform_db.tenants.find_one({"_id": tid}):
-        tid, n = f"{base}_{n}", n + 1
+        tid, n = tenant_key(body.name, body.owner_name, n), n + 1
     dbn = tenant_db_name(tid)
     created_at = now_iso()
     creator = {
@@ -2373,7 +2374,8 @@ async def create_tenant(body: TenantIn, u=Depends(require_super)):
     }
     tenant_record = {
         "_id": tid, "name": body.name.strip(), "owner_name": body.owner_name.strip(),
-        "owner_username": username, "mobile": body.mobile, "city": body.city, "state": body.state,
+        "owner_username": username, "email": (body.email or "").strip(),
+        "mobile": body.mobile, "city": body.city, "state": body.state,
         "plan": plan["name"] if plan else body.plan, "license_status": "Active",
         "license_start": date.today().isoformat(),
         "license_expiry": (date.today() + timedelta(days=int(body.license_days or 365))).isoformat(),
