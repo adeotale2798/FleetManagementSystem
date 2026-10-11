@@ -137,6 +137,13 @@ def test_platform_error_logs_are_filtered_and_paginated(monkeypatch):
         "$gte": "2026-10-01", "$lt": "2026-10-12",
     }
 
+    asyncio.run(server.platform_errors(
+        page=1, page_size=25, route=None, status=0, source=None,
+        reference_id=None, from_date=None, to_date=None,
+        u={"role": "superadmin"},
+    ))
+    assert captured["query"]["status"] == 0
+
 
 def test_client_error_reports_are_redacted_and_expire(monkeypatch):
     records = []

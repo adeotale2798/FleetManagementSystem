@@ -2,7 +2,7 @@ import { act } from "react";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { api } from "../lib/api";
 import { registerBookingTestHarness } from "./Booking.testUtils";
-import { matchingGoodsSuggestions, romanHindi } from "./Booking";
+import { matchingGoodsEntries, matchingGoodsSuggestions, romanHindi } from "./Booking";
 jest.mock("../lib/api", () => ({
   api: { get: jest.fn(), post: jest.fn(), patch: jest.fn(), delete: jest.fn() },
   assetUrl: (value) => value || "",
@@ -13,9 +13,23 @@ describe("simple booking workflow", () => {
   const { container, site, trip, flushMicrotasks, getByLabelText, getByRole, clickButton,
     createLedgerRow, mockBookingApi, renderBooking, setInput } = registerBookingTestHarness();
 
-  it("transliterates common names and goods offline and preserves Hindi input", () => {
-    expect(romanHindi("Ramesh")).toBe("रमेश");
-    expect(romanHindi("Suresh")).toBe("सुरेश");
+  it("applies dictionary terms while preserving names, codes, and Hindi input", () => {
+    expect(romanHindi("Ramesh")).toBe("Ramesh");
+    expect(romanHindi("bucket", [{ english: "Bucket", hindi: "बाल्टी" }])).toBe("बाल्टी");
+    expect(romanHindi("plastic bucket", [{ english: "bucket", hindi: "बाल्टी" }]))
+      .toBe("प्लास्टिक बाल्टी");
+    expect(romanHindi("plastic bucket", [
+      { english: "plastic", hindi: "प्लास्टिक" },
+      { english: "bucket", hindi: "बाल्टी" },
+      { english: "plastic bucket", hindi: "विशेष अनुवाद" },
+    ])).toBe("विशेष अनुवाद");
+    expect(romanHindi("crate of plastic bucket", [
+      { english: "plastic bucket", hindi: "प्लास्टिक बाल्टी" },
+    ])).toContain("प्लास्टिक बाल्टी");
+    expect(romanHindi("AB1234")).toBe("AB1234");
+    expect(romanHindi("GPS")).toBe("GPS");
+    expect(romanHindi("Samsung")).toBe("Samsung");
+    expect(romanHindi("Suresh")).toBe("Suresh");
     expect(romanHindi("car")).toBe("कार");
     expect(romanHindi("HARDWARE")).toBe("हार्डवेयर");
     expect(romanHindi("Cement")).toBe("सीमेंट");
@@ -31,6 +45,24 @@ describe("simple booking workflow", () => {
     expect(matchingGoodsSuggestions("sa", ["सामान"])).toContain("सामान");
     expect(matchingGoodsSuggestions("sam", ["सामान"])).toContain("सामान");
     expect(matchingGoodsSuggestions("cem", ["सीमेंट"])).toContain("सीमेंट");
+    expect(matchingGoodsSuggestions("buck", [], [{ english: "bucket", hindi: "बाल्टी" }]))
+      .toContain("बाल्टी");
+    expect(matchingGoodsEntries("thaila").some((entry) =>
+      entry.english === "Bag" && entry.hindi === "बोरा")).toBe(true);
+    expect(matchingGoodsEntries("Bardana").some((entry) =>
+      entry.english === "Gunny Bag" && entry.hindi === "बरदाना")).toBe(true);
+    expect(matchingGoodsEntries("jhola", [], [], [{
+      key: "Bag",
+      english_name: "Bag",
+      hindi_name: "थैला",
+      hinglish_name: "Bora",
+      aliases: ["thaila", "jhola"],
+    }])).toEqual([expect.objectContaining({ english: "Bag", hindi: "थैला" })]);
+    expect(matchingGoodsEntries("plastic bu", [], [
+      { english: "plastic bucket", hindi: "विशेष अनुवाद" },
+    ])).toEqual([expect.objectContaining({
+      english: "plastic bucket", hindi: "विशेष अनुवाद",
+    })]);
   });
 
   it("places the site selector between the page title and language controls", async () => {
@@ -136,6 +168,7 @@ describe("simple booking workflow", () => {
 
     await act(async () => {
       setInput("प्राप्तकर्ता का नाम", "Suresh");
+      setInput("Receiver name in Hindi", "सुरेश");
       setInput("सामान का नाम · 1", "Cement");
       setInput("मात्रा · 1", "3");
     });
@@ -147,6 +180,7 @@ describe("simple booking workflow", () => {
 
     const [, submittedReceipt] = api.post.mock.calls.find(([path]) => path.endsWith("/lrs"));
     expect(submittedReceipt.receiver_name).toBe("Suresh");
+    expect(submittedReceipt.receiver_name_hindi).toBe("सुरेश");
     expect(submittedReceipt.receipt_date).toBe(trip.operating_date);
     expect(submittedReceipt.goods_rows).toEqual([{ type: "Cement", type_hindi: "सीमेंट", description: "", description_hindi: "", quantity: 3 }]);
   });
@@ -207,6 +241,10 @@ describe("simple booking workflow", () => {
     expect(container.querySelector('[aria-label="Goods and description row 1"]').placeholder)
       .toBe("Goods and description");
     expect(container.querySelector('[aria-label="Quantity row 1"]').placeholder).toBe("Quantity");
+    const quantityInput = container.querySelector('[aria-label="Quantity row 1"]');
+    const goodsInput = container.querySelector('[aria-label="Goods and description row 1"]');
+    expect(quantityInput.compareDocumentPosition(goodsInput)
+      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(container.querySelector('[aria-label="Goods and description row 1"]').parentElement.className)
       .toContain("relative block");
     expect(container.querySelector('[aria-label="Quantity row 1"]').parentElement.querySelector("svg").className.baseVal)
@@ -234,7 +272,7 @@ describe("simple booking workflow", () => {
     expect(goodsSuggestions.textContent).toContain("सीमेंट");
   });
 
-  it("saves a clicked Hindi goods suggestion as the goods name when editing", async () => {
+  it("selects the canonical English and Hindi terms from the goods dictionary", async () => {
     const existingReceipt = createLedgerRow({
       sender_name: "Sender", receiver_name: "Receiver",
       goods_rows: [{ type: "s", type_hindi: "चीनी", quantity: 2 }],
@@ -269,7 +307,8 @@ describe("simple booking workflow", () => {
     await act(async () => {
       fireEvent.click(within(listbox).getByRole("option", { name: "चीनी" }));
     });
-    expect(goodsInput.value).toBe("चीनी");
+    expect(goodsInput.value).toBe("Sugar");
+    expect(getByLabelText("Goods in Hindi row 1").value).toBe("चीनी");
     expect(screen.queryByRole("listbox", { name: "Suggestions for goods row 1" })).toBeNull();
 
     await act(async () => {
@@ -280,7 +319,7 @@ describe("simple booking workflow", () => {
       `/sites/${site.id}/trips/${trip.id}/lrs/${existingReceipt.id}`,
       expect.objectContaining({
         goods_rows: [expect.objectContaining({
-          type: "चीनी", type_hindi: "चीनी", quantity: 2,
+          type: "Sugar", type_hindi: "चीनी", quantity: 2,
         })],
       }),
     );
@@ -288,7 +327,7 @@ describe("simple booking workflow", () => {
       Array.from(container.querySelectorAll("button")).find((button) =>
         button.textContent === "Edit").click();
     });
-    expect(getByLabelText("Goods and description row 1").value).toBe("चीनी");
+    expect(getByLabelText("Goods and description row 1").value).toBe("Sugar");
   });
 
   it("supports arrow-key and Enter selection for goods suggestions", async () => {
@@ -310,7 +349,45 @@ describe("simple booking workflow", () => {
     await act(async () => fireEvent.keyDown(goodsInput, { key: "ArrowDown" }));
     expect(screen.getByRole("option", { name: "सामान" }).getAttribute("aria-selected")).toBe("true");
     await act(async () => fireEvent.keyDown(goodsInput, { key: "Enter" }));
-    expect(goodsInput.value).toBe("सामान");
+    expect(goodsInput.value).toBe("saman");
+    expect(getByLabelText("Goods in Hindi row 1").value).toBe("सामान");
+  });
+
+  it("finds Hinglish dictionary aliases and selects the canonical English and Hindi terms", async () => {
+    const customizedSite = {
+      ...site,
+      config: {
+        transport_hindi_dictionary_overrides: [{
+          key: "Bag",
+          english_name: "Bag",
+          hindi_name: "थैला",
+          hinglish_name: "Bora",
+          aliases: ["thaila", "jhola"],
+        }],
+      },
+    };
+    mockBookingApi({ sites: [customizedSite] });
+    await renderBooking();
+    await act(async () => {
+      Array.from(container.querySelectorAll("button")).find((button) =>
+        button.textContent.includes("Create Trip")).click();
+    });
+    await act(async () => {
+      container.querySelector("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await flushMicrotasks();
+    });
+
+    const goodsInput = getByLabelText("Goods and description row 1");
+    await act(async () => {
+      fireEvent.focus(goodsInput);
+      fireEvent.change(goodsInput, { target: { value: "thaila" } });
+    });
+    const listbox = screen.getByRole("listbox", { name: "Suggestions for goods row 1" });
+    await act(async () => {
+      fireEvent.click(within(listbox).getByRole("option", { name: "थैला" }));
+    });
+    expect(goodsInput.value).toBe("Bag");
+    expect(getByLabelText("Goods in Hindi row 1").value).toBe("थैला");
   });
 
   it("removes goods rows with the X button and restores three blank rows", async () => {
@@ -726,6 +803,7 @@ describe("simple booking workflow", () => {
     await act(async () => {
       setInput('[aria-label="Receiver name in English"]', "Suresh");
       setInput('[aria-label="Goods and description row 1"]', "Cement");
+      setInput('[aria-label="Goods in Hindi row 1"]', "सीमेंट की बोरी");
       setInput('[aria-label="Quantity row 1"]', "3");
       setInput('[aria-label="Receipt Bhada"]', "30.00");
       setInput('[aria-label="Receipt Hamali"]', "5.00");
@@ -746,11 +824,11 @@ describe("simple booking workflow", () => {
     expect(receiptRequest[1]).toMatchObject({
       sender_name: "",
       receiver_name: "Suresh",
-      receiver_name_hindi: "सुरेश",
+      receiver_name_hindi: "",
       receiver_phone: "9876543210",
       city: "Hinganghat",
       goods_rows: [{
-        type: "Cement", type_hindi: "सीमेंट", description: "",
+        type: "Cement", type_hindi: "सीमेंट की बोरी", description: "",
         description_hindi: "", quantity: 3,
       }],
       rent: "30.00",
@@ -767,6 +845,7 @@ describe("simple booking workflow", () => {
     expect(printedReceipt.textContent).toContain("9876543210");
     expect(printedReceipt.textContent).not.toContain("Old Sender Road");
     expect(printedReceipt.textContent).not.toContain("Old Receiver Road");
+    expect(printedReceipt.textContent).toContain("Suresh");
     expect(printedReceipt.textContent).toContain("Mama Garage");
     expect(container.querySelector('[aria-label="Receiver name in English"]').value).toBe("");
     expect(container.querySelector('[aria-label="Goods and description row 1"]').value).toBe("");
@@ -955,7 +1034,7 @@ describe("simple booking workflow", () => {
       expect.objectContaining({
         receiver_phone: "9876543210",
         goods_rows: [expect.objectContaining({
-          type: "Cement", type_hindi: "सीमेंट", description: "", description_hindi: "", quantity: 4,
+          type: "Cement", type_hindi: "सीमेंट बोरियाँ", description: "", description_hindi: "", quantity: 4,
         })],
         expected_updated_at: "version-1",
         idempotency_key: expect.any(String),

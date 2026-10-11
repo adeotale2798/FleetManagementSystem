@@ -13,7 +13,7 @@ load_dotenv(Path(__file__).parent / ".env")
 
 BASE_DB = os.environ["DB_NAME"]
 PRIMARY_TENANT = "naidu"
-MAX_MONGO_DATABASE_NAME_BYTES = 63
+MAX_MONGO_DATABASE_NAME_BYTES = 38
 
 client = AsyncIOMotorClient(os.environ["MONGO_URL"])
 platform_db = client[f"{BASE_DB}_platform"]
@@ -53,10 +53,23 @@ def tenant_key(business_name, owner_name, collision_index=None):
 def tenant_db_name(tenant_id):
     if tenant_id in (None, "", PRIMARY_TENANT):
         return BASE_DB
-    # Old licences used a 12-char hex id as the database suffix.
-    if re.fullmatch(r"[a-f0-9]{12}", str(tenant_id)):
-        return f"{BASE_DB}_{tenant_id}"
-    return f"{BASE_DB}_{tenant_id}"
+    tenant_suffix = str(tenant_id)
+    max_suffix_bytes = (
+        MAX_MONGO_DATABASE_NAME_BYTES - len(BASE_DB.encode("utf-8")) - 1
+    )
+    if max_suffix_bytes < 1:
+        raise ValueError("DB_NAME is too long to create a tenant database.")
+    if len(tenant_suffix.encode("utf-8")) > max_suffix_bytes:
+        digest = hashlib.sha256(tenant_suffix.encode("utf-8")).hexdigest()[:8]
+        prefix_bytes = max_suffix_bytes - len(digest) - 1
+        if prefix_bytes > 0:
+            prefix = tenant_suffix.encode("utf-8")[:prefix_bytes].decode(
+                "utf-8", errors="ignore",
+            ).rstrip("_")
+            tenant_suffix = f"{prefix}_{digest}" if prefix else digest
+        else:
+            tenant_suffix = digest[:max_suffix_bytes]
+    return f"{BASE_DB}_{tenant_suffix}"
 
 
 def set_tenant(tenant_id):

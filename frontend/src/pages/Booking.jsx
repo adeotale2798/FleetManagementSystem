@@ -10,6 +10,7 @@ import { api, assetUrl, errMsg } from "../lib/api";
 import { Btn, Card, ErrorState, Loader, PageHead, toast } from "../components/ui";
 import { dmy, dmyDateTime, todayISO } from "../lib/format";
 import { DEFAULT_BOOKING_GOODS } from "../lib/bookingGoods";
+import transportHindiDictionary from "../lib/transportHindiDictionary.json";
 import { DATA_CHANGE_EVENT } from "../lib/realtime";
 import TransportReceipt from "../components/TransportReceipt";
 import BookingAudit from "./BookingAudit";
@@ -147,10 +148,40 @@ const commonGoodsHindi = {
   plastic: "प्लास्टिक", paper: "कागज़", potato: "आलू",
   mango: "आम", onion: "प्याज़", medicine: "दवाई", water: "पानी",
 };
-export const romanHindi = (source) => {
+const customHindiEntries = (dictionary = {}) => (
+  Array.isArray(dictionary)
+    ? dictionary.reduce((entries, row) => {
+      const english = row?.english || row?.english_name;
+      const hindi = row?.hindi || row?.hindi_name;
+      if (typeof english === "string" && typeof hindi === "string") {
+        entries[english.trim().toLocaleLowerCase()] = hindi.trim();
+      }
+      return entries;
+    }, {})
+    : Object.fromEntries(Object.entries(dictionary || {}).map(([english, hindi]) => [
+      english.trim().toLocaleLowerCase(), String(hindi || "").trim(),
+    ]))
+);
+
+export const romanHindi = (source, dictionary = {}) => {
   const input = source.trim();
   if (!input) return input;
-  if (commonGoodsHindi[input.toLowerCase()]) return commonGoodsHindi[input.toLowerCase()];
+  const customEntries = customHindiEntries(dictionary);
+  const combinedDictionary = { ...commonGoodsHindi, ...customEntries };
+  if (combinedDictionary[input.toLocaleLowerCase()]) {
+    return combinedDictionary[input.toLocaleLowerCase()];
+  }
+  const escaped = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const phraseEntries = Object.entries(combinedDictionary)
+    .filter(([english]) => /\s/.test(english))
+    .sort(([first], [second]) => second.length - first.length);
+  const inputWithTranslatedPhrases = phraseEntries.reduce((current, [english, hindi]) => {
+    const phrase = english.trim().split(/\s+/).map(escaped).join("\\s+");
+    return current.replace(
+      new RegExp(`(^|[^A-Za-z0-9])${phrase}(?=$|[^A-Za-z0-9])`, "gi"),
+      (_match, boundary) => `${boundary}${hindi}`,
+    );
+  }, input);
   const consonants = [
     ["ksh", "क्ष"], ["chh", "छ"], ["sh", "श"], ["ch", "च"], ["kh", "ख"], ["gh", "घ"],
     ["th", "थ"], ["dh", "ध"], ["ph", "फ"], ["bh", "भ"], ["jh", "झ"], ["ng", "ङ"],
@@ -162,10 +193,12 @@ export const romanHindi = (source) => {
   const vowels = [["aa", "ा"], ["ee", "ी"], ["ii", "ी"], ["oo", "ू"], ["uu", "ू"],
     ["ai", "ै"], ["au", "ौ"], ["a", ""], ["i", "ि"], ["u", "ु"],
     ["e", "े"], ["o", "ो"]];
-  return input.split(/(\s+|[-/])/).map((part) => {
+  return inputWithTranslatedPhrases.split(/(\s+|[-/])/).map((part) => {
     if (!part || /^\s+$|[-/]/.test(part) || isHindi(part)) return part;
     const lower = part.toLowerCase();
-    if (commonGoodsHindi[lower]) return commonGoodsHindi[lower];
+    if (combinedDictionary[lower]) return combinedDictionary[lower];
+    if (/\d/.test(part) || /^[A-Z][A-Z0-9._/-]{1,}$/.test(part)
+      || /^[A-Z][a-z]+$/.test(part)) return part;
     let output = "";
     let index = 0;
     let pendingConsonant = false;
@@ -198,24 +231,102 @@ export const romanHindi = (source) => {
     return output;
   }).join("");
 };
-export const matchingGoodsSuggestions = (query, suggestions = []) => {
+export const matchingGoodsSuggestions = (query, suggestions = [], dictionary = {}) => {
   const normalizedQuery = String(query || "").trim().toLocaleLowerCase();
   if (!normalizedQuery) return [];
-  const queryHindi = romanHindi(normalizedQuery);
-  const matches = Object.entries(commonGoodsHindi)
+  const combinedDictionary = { ...commonGoodsHindi, ...customHindiEntries(dictionary) };
+  const queryHindi = romanHindi(normalizedQuery, dictionary);
+  const matches = Object.entries(combinedDictionary)
     .filter(([english]) => english.startsWith(normalizedQuery))
     .map(([, hindi]) => hindi);
   for (const suggestion of suggestions) {
     const value = String(suggestion || "").trim();
     if (!value) continue;
-    const hindi = isHindi(value) ? value : romanHindi(value);
-    const matchingAlias = Object.keys(commonGoodsHindi).some((english) =>
-      commonGoodsHindi[english] === hindi && english.startsWith(normalizedQuery));
+    const hindi = isHindi(value) ? value : romanHindi(value, dictionary);
+    const matchingAlias = Object.keys(combinedDictionary).some((english) =>
+      combinedDictionary[english] === hindi && english.startsWith(normalizedQuery));
     if (value.toLocaleLowerCase().includes(normalizedQuery)
       || hindi.includes(queryHindi) || matchingAlias) matches.push(hindi);
   }
   if (!matches.length) matches.push(queryHindi);
   return [...new Set(matches)].filter(Boolean).slice(0, 12);
+};
+
+export const matchingGoodsEntries = (
+  query, suggestions = [], dictionary = {}, transportOverrides = [],
+) => {
+  const normalizedQuery = String(query || "").trim().toLocaleLowerCase();
+  if (!normalizedQuery) return [];
+  const queryHindi = romanHindi(normalizedQuery, dictionary).toLocaleLowerCase();
+  const legacyMatches = matchingGoodsSuggestions(query, suggestions, dictionary);
+  const customEntries = customHindiEntries(dictionary);
+  const overrideMap = new Map((Array.isArray(transportOverrides) ? transportOverrides : [])
+    .filter((entry) => typeof entry?.key === "string")
+    .map((entry) => [entry.key.toLocaleLowerCase(), entry]));
+  const entries = new Map();
+  for (const item of transportHindiDictionary) {
+    const override = overrideMap.get(item.english_name.toLocaleLowerCase());
+    entries.set(item.english_name.toLocaleLowerCase(), {
+      category: override?.category || item.category,
+      english: override?.english_name || item.english_name,
+      hindi: customEntries[item.english_name.toLocaleLowerCase()]
+        || override?.hindi_name || item.hindi_name,
+      hinglish: override?.hinglish_name ?? item.hinglish_name,
+      aliases: Array.isArray(override?.aliases) ? override.aliases : item.aliases,
+      priority: 1,
+      transportOverride: Boolean(override),
+    });
+  }
+  for (const [english, hindi] of Object.entries(commonGoodsHindi)) {
+    const key = english.toLocaleLowerCase();
+    const existing = entries.get(key);
+    entries.set(key, {
+      ...(existing || { english, hinglish: "", aliases: [], priority: 1 }),
+      hindi: customEntries[key] || (existing?.transportOverride ? existing.hindi : hindi),
+      priority: 0,
+    });
+  }
+  for (const [english, hindi] of Object.entries(customEntries)) {
+    const key = english.toLocaleLowerCase();
+    entries.set(key, {
+      ...(entries.get(key) || { english, hinglish: "", aliases: [], priority: 0 }),
+      hindi,
+      priority: 0,
+    });
+  }
+  const matches = [...entries.values()].filter((entry) => [
+    entry.english, entry.hinglish,
+    ...entry.aliases.filter((alias) => /^[a-z0-9][a-z0-9 ./'()-]*$/i.test(alias)),
+  ].some((term) => String(term || "").toLocaleLowerCase().startsWith(normalizedQuery)));
+  matches.sort((first, second) => {
+    const legacyRank = (entry) => {
+      const index = legacyMatches.indexOf(entry.hindi);
+      return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+    };
+    const rank = (entry) => entry.english.toLocaleLowerCase() === normalizedQuery ? 0
+      : entry.hinglish.toLocaleLowerCase() === normalizedQuery ? 1 : 2;
+    return legacyRank(first) - legacyRank(second)
+      || first.priority - second.priority
+      || rank(first) - rank(second) || first.english.localeCompare(second.english);
+  });
+  const options = matches.map((entry) => ({
+    kind: "dictionary",
+    english: entry.english,
+    hindi: entry.hindi,
+    hinglish: entry.hinglish,
+    category: entry.category,
+  }));
+  for (const suggestion of suggestions) {
+    const value = String(suggestion || "").trim();
+    if (!value || (!value.toLocaleLowerCase().startsWith(normalizedQuery)
+      && !romanHindi(value, dictionary).toLocaleLowerCase().startsWith(normalizedQuery)
+      && !romanHindi(value, dictionary).toLocaleLowerCase().includes(queryHindi))) continue;
+    const hindi = isHindi(value) ? value : romanHindi(value, dictionary);
+    if (!options.some((option) => option.hindi === hindi)) {
+      options.push({ kind: "suggestion", english: value, hindi, hinglish: "" });
+    }
+  }
+  return options.slice(0, 12);
 };
 
 function money(value) {
@@ -403,6 +514,10 @@ function hindiText(hindi, english) {
   return isHindi(hindi) ? hindi : romanHindi(english || hindi || "");
 }
 
+function hindiName(hindi, english) {
+  return isHindi(hindi) ? hindi : english || hindi || "";
+}
+
 function hindiDigits(value) {
   return String(value ?? "").replace(/[0-9]/g, (digit) => "०१२३४५६७८९"[Number(digit)]);
 }
@@ -473,7 +588,8 @@ function ReceiptPrint({ receipt, trip, site, branding, showCharges, controls, ac
 
 function ReceiptForm({
   trip, receipt, canEditFinance, addressSuggestions, convertHindi, receiptFee,
-  goodsSuggestions, senderAddressEnabled, receiverAddressEnabled, receiverPhoneEnabled, previousReceipts,
+  goodsSuggestions, hindiDictionary, transportDictionaryOverrides,
+  senderAddressEnabled, receiverAddressEnabled, receiverPhoneEnabled, previousReceipts,
   draftScope, language, onCancel, onSaved,
 }) {
   const t = (english, hindi) => language === "hi" ? hindi : english;
@@ -484,8 +600,10 @@ function ReceiptForm({
   const [form, setForm] = useState(() => receipt ? {
     receipt_date: receipt.receipt_date || receipt.operating_date || trip.operating_date,
     sender_name: receipt.sender_name || "",
+    sender_name_hindi: receipt.sender_name_hindi || "",
     sender_address: receipt.sender_address || "",
     receiver_name: receipt.receiver_name || "",
+    receiver_name_hindi: receipt.receiver_name_hindi || "",
     receiver_address: receipt.receiver_address || "", receiver_phone: receipt.receiver_phone || "",
     goods_rows: getGoodsRows(receipt).map((line) => ({
       ...line,
@@ -496,8 +614,8 @@ function ReceiptForm({
     })),
     rent: receipt.rent ?? "0", hamali: receipt.hamali ?? "0",
   } : {
-    receipt_date: trip.operating_date, sender_name: "", sender_address: "",
-    receiver_name: "", receiver_address: "", receiver_phone: "",
+    receipt_date: trip.operating_date, sender_name: "", sender_name_hindi: "", sender_address: "",
+    receiver_name: "", receiver_name_hindi: "", receiver_address: "", receiver_phone: "",
     goods_rows: blankGoods(), rent: "0", hamali: "0",
   });
   const [error, setError] = useState("");
@@ -551,8 +669,8 @@ function ReceiptForm({
       row === index ? { ...line, [key]: value } : line) }));
   };
   const selectGoodsSuggestion = (index, suggestion) => {
-    changeGoods(index, "type", suggestion);
-    changeGoods(index, "type_hindi", suggestion);
+    changeGoods(index, "type", suggestion.english);
+    changeGoods(index, "type_hindi", suggestion.hindi);
     setActiveGoodsSuggestion(-1);
     setActiveGoodsRow(-1);
   };
@@ -594,22 +712,22 @@ function ReceiptForm({
     const body = {
       receipt_date: receipt ? form.receipt_date : trip.operating_date,
       sender_name: form.sender_name.trim(),
-      sender_name_hindi: convertHindi ? romanHindi(form.sender_name) : form.sender_name.trim(),
+      sender_name_hindi: form.sender_name_hindi.trim(),
       receiver_name: form.receiver_name.trim(),
-      receiver_name_hindi: convertHindi ? romanHindi(form.receiver_name) : form.receiver_name.trim(),
+      receiver_name_hindi: form.receiver_name_hindi.trim(),
       city: "Hinganghat",
       ...(receiverPhoneEnabled ? { receiver_phone: form.receiver_phone.trim() } : {}),
       ...(senderAddressEnabled ? {
         sender_address: form.sender_address.trim(),
-        sender_address_hindi: convertHindi ? romanHindi(form.sender_address) : form.sender_address.trim(),
+        sender_address_hindi: convertHindi ? romanHindi(form.sender_address, hindiDictionary) : form.sender_address.trim(),
       } : {}),
       ...(receiverAddressEnabled ? {
         receiver_address: form.receiver_address.trim(),
-        receiver_address_hindi: convertHindi ? romanHindi(form.receiver_address) : form.receiver_address.trim(),
+        receiver_address_hindi: convertHindi ? romanHindi(form.receiver_address, hindiDictionary) : form.receiver_address.trim(),
       } : {}),
       goods_rows: goods.map((line) => ({
         type: line.type.trim(),
-        type_hindi: convertHindi ? (line.type_hindi || romanHindi(line.type)) : line.type.trim(),
+        type_hindi: convertHindi ? (line.type_hindi || romanHindi(line.type, hindiDictionary)) : line.type.trim(),
         description: "",
         description_hindi: "",
         quantity: Number(line.quantity),
@@ -749,6 +867,18 @@ function ReceiptForm({
               onChange={(event) => patch({ receiver_phone: event.target.value.replace(/\D/g, "").slice(0, 10) })} />
           </label>}
         </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <label><span className="lbl">{t("Sender name in Hindi (optional)", "भेजने वाले का नाम हिंदी में (ज़रूरी नहीं)")}</span>
+            <input className={field} aria-label="Sender name in Hindi"
+              value={form.sender_name_hindi}
+              onChange={(event) => patch({ sender_name_hindi: event.target.value })} />
+          </label>
+          <label><span className="lbl">{t("Receiver name in Hindi (optional)", "प्राप्तकर्ता का नाम हिंदी में (ज़रूरी नहीं)")}</span>
+            <input className={field} aria-label="Receiver name in Hindi"
+              value={form.receiver_name_hindi}
+              onChange={(event) => patch({ receiver_name_hindi: event.target.value })} />
+          </label>
+        </div>
         {senderAddressEnabled && <label className="block"><span className="lbl flex items-center gap-2"><MapPin size={16} aria-hidden="true" />{t("Sender address (optional)", "भेजने वाले का पता (ज़रूरी नहीं)")}</span><input className={field} aria-label={t("Sender address (optional)", "भेजने वाले का पता (ज़रूरी नहीं)")} list="sender-address-options"
           value={form.sender_address} onChange={(event) => patch({ sender_address: event.target.value })} />
           <datalist id="sender-address-options">{addressSuggestions.sender.map((address) =>
@@ -770,10 +900,23 @@ function ReceiptForm({
           </div>
             <div className="space-y-1.5">
             {form.goods_rows.map((line, index) => {
-              const suggestions = matchingGoodsSuggestions(line.type, goodsSuggestions);
+              const suggestions = matchingGoodsEntries(
+                line.type, goodsSuggestions, hindiDictionary, transportDictionaryOverrides,
+              );
               const listId = `goods-suggestions-${index + 1}`;
               return <div key={index}
                 className="receipt-goods-row grid grid-cols-[8.5rem_minmax(0,1fr)_2.25rem] items-start gap-2 rounded-xl border border-line p-1.5">
+              <label className="relative col-start-1 row-start-1 block min-w-0">
+                <span className="lbl">{t("Quantity", "मात्रा")}</span>
+                <span className="relative block">
+                  <Hash size={16} aria-hidden="true"
+                    className="pointer-events-none absolute left-2 top-1/2 z-10 -translate-y-1/2 text-muted" />
+                  <input className={`${field} min-h-11 pl-8`} type="number" min="1" step="1" inputMode="numeric" placeholder={t("Quantity", "मात्रा")}
+                    aria-label={language === "hi" ? `${t("Quantity", "मात्रा")} · ${index + 1}` : `Quantity row ${index + 1}`}
+                    value={line.quantity}
+                    onChange={(event) => changeGoods(index, "quantity", event.target.value)} />
+                </span>
+              </label>
               <label className="relative col-start-2 row-start-1 block min-w-0">
                 <span className="lbl">{t("Goods and description", "सामान का नाम")} · {index + 1}</span>
                 <span className="relative block">
@@ -796,8 +939,12 @@ function ReceiptForm({
                     onChange={(event) => {
                       setActiveGoodsSuggestion(-1);
                       changeGoods(index, "type", event.target.value);
-                      changeGoods(index, "type_hindi", convertHindi
-                        ? romanHindi(event.target.value) : event.target.value);
+                      const previousAutoHindi = convertHindi
+                        ? romanHindi(line.type, hindiDictionary) : line.type;
+                      const hasManualHindi = line.type_hindi && line.type_hindi !== previousAutoHindi;
+                      changeGoods(index, "type_hindi", hasManualHindi
+                        ? line.type_hindi
+                        : convertHindi ? romanHindi(event.target.value, hindiDictionary) : event.target.value);
                     }}
                     onKeyDown={(event) => {
                       if (!suggestions.length || activeGoodsRow !== index) return;
@@ -826,23 +973,25 @@ function ReceiptForm({
                       aria-selected={activeGoodsSuggestion === suggestionIndex}
                       className={`block w-full px-3 py-2 text-left text-slate-900 hover:bg-emerald-50 focus:bg-emerald-50 ${
                         activeGoodsSuggestion === suggestionIndex ? "bg-emerald-50" : ""}`}
+                      aria-label={suggestion.hindi}
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => selectGoodsSuggestion(index, suggestion)}>
-                      {suggestion}
+                      <span>{suggestion.hindi}</span>
+                      <span className="ml-2 text-xs text-muted">
+                        {suggestion.english}{suggestion.hinglish
+                          && suggestion.hinglish.toLocaleLowerCase() !== suggestion.english.toLocaleLowerCase()
+                          ? ` · ${suggestion.hinglish}` : ""}
+                      </span>
                     </button>)}
                   </div>}
                 </span>
               </label>
-              <label className="relative col-start-1 row-start-1 block min-w-0">
-                <span className="lbl">{t("Quantity", "मात्रा")}</span>
-                <span className="relative block">
-                  <Hash size={16} aria-hidden="true"
-                    className="pointer-events-none absolute left-2 top-1/2 z-10 -translate-y-1/2 text-muted" />
-                  <input className={`${field} min-h-11 pl-8`} type="number" min="1" step="1" inputMode="numeric" placeholder={t("Quantity", "मात्रा")}
-                    aria-label={language === "hi" ? `${t("Quantity", "मात्रा")} · ${index + 1}` : `Quantity row ${index + 1}`}
-                    value={line.quantity}
-                    onChange={(event) => changeGoods(index, "quantity", event.target.value)} />
-                </span>
+              <label className="col-start-2 row-start-2 block min-w-0">
+                <span className="lbl">{t("Goods in Hindi", "सामान हिंदी में")} · {index + 1}</span>
+                <input className={`${field} min-h-11 bg-white text-slate-900`}
+                  aria-label={`Goods in Hindi row ${index + 1}`}
+                  value={line.type_hindi}
+                  onChange={(event) => changeGoods(index, "type_hindi", event.target.value)} />
               </label>
               <button type="button" aria-label={`${t("Remove goods row", "सामान हटाएँ")} ${index + 1}`} className="col-start-3 row-start-1 self-end rounded-lg p-2 text-muted hover:bg-red-50 hover:text-red-700"
                 onClick={() => {
@@ -1192,6 +1341,8 @@ export default function Booking({ user }) {
     ? receiptControls.receipt_print_size : "default";
   const goodsSuggestions = Array.isArray(site?.config?.goods_suggestions)
     ? site.config.goods_suggestions : DEFAULT_BOOKING_GOODS;
+  const hindiDictionary = Array.isArray(site?.config?.hindi_dictionary)
+    ? site.config.hindi_dictionary : [];
   const convertHindi = receiptControls.hindi_conversion_enabled !== false;
   const receiptFee = Number(receiptControls.receipt_fee ?? 2);
   const receiptLanguage = receiptControls.receipt_language === "english" ? "english" : "hindi";
@@ -2074,11 +2225,11 @@ export default function Booking({ user }) {
         {ledgerStatus[row.id]}
       </span>}
     </> },
-    { key: "sender", label: "Sender", printable: true, render: (row) => hindiText(row.sender_name_hindi, row.sender_name) },
+    { key: "sender", label: "Sender", printable: true, render: (row) => hindiName(row.sender_name_hindi, row.sender_name) },
     { key: "senderAddress", label: "Sender address", printable: true,
       render: (row) => hindiText(row.sender_address_hindi, row.sender_address) || "—" },
     { key: "senderPhone", label: "Sender phone", printable: true, render: (row) => row.sender_phone || "—" },
-    { key: "receiver", label: "Receiver", printable: true, render: (row) => hindiText(row.receiver_name_hindi, row.receiver_name) },
+    { key: "receiver", label: "Receiver", printable: true, render: (row) => hindiName(row.receiver_name_hindi, row.receiver_name) },
     { key: "receiverAddress", label: "Receiver address", printable: true,
       render: (row) => hindiText(row.receiver_address_hindi, row.receiver_address) || "—" },
     { key: "receiverPhone", label: "Receiver phone", printable: true, render: (row) => row.receiver_phone || "—" },
@@ -2528,6 +2679,8 @@ export default function Booking({ user }) {
                 convertHindi={convertHindi}
                 receiptFee={receiptFee}
                 goodsSuggestions={goodsSuggestions}
+                hindiDictionary={hindiDictionary}
+                transportDictionaryOverrides={site?.config?.transport_hindi_dictionary_overrides || []}
                 previousReceipts={receipts.filter((receipt) => !receipt.voided)}
                 senderAddressEnabled={senderAddressEnabled}
                 receiverAddressEnabled={receiverAddressEnabled}
@@ -2573,9 +2726,9 @@ export default function Booking({ user }) {
                   <div className="receipt-list-primary" lang="hi">
                     <h3 className="font-bold">{receipt.lr_ref}</h3>
                     <span className="receipt-list-parties">
-                      {hindiText(receipt.sender_name_hindi, receipt.sender_name)}
+                      {hindiName(receipt.sender_name_hindi, receipt.sender_name)}
                       {" → "}
-                      {hindiText(receipt.receiver_name_hindi, receipt.receiver_name)}
+                      {hindiName(receipt.receiver_name_hindi, receipt.receiver_name)}
                     </span>
                     {receiverPhoneEnabled && receipt.receiver_phone && <span className="receipt-list-phone">
                       <Phone size={14} aria-hidden="true" />{receipt.receiver_phone}
@@ -2816,6 +2969,7 @@ export default function Booking({ user }) {
                 <thead className="bg-gray-200">
                   <tr>{orderedLedgerColumns.map((column) =>
                     <th key={column.key}
+                      aria-label={ledgerColumnLabel(column.label, language)}
                       draggable={owner && column.key !== "amountPaid"}
                       tabIndex={owner && column.key !== "amountPaid" ? 0 : undefined}
                       title={owner && column.key !== "amountPaid"
@@ -2930,7 +3084,7 @@ export default function Booking({ user }) {
                       </label>}
                     </div>
                     <p className="mt-3 text-base" lang="hi">
-                      {hindiText(row.sender_name_hindi, row.sender_name)} → {hindiText(row.receiver_name_hindi, row.receiver_name)}
+                      {hindiName(row.sender_name_hindi, row.sender_name)} → {hindiName(row.receiver_name_hindi, row.receiver_name)}
                     </p>
                     <p className="mt-2 text-base font-semibold" lang="hi">{goods || t("Goods not entered", "सामान नहीं भरा")}</p>
                     <p className="mt-1 text-sm">{t("Total quantity", "कुल मात्रा")}: <strong>{totalGoodsQuantity(row)}</strong></p>
@@ -3012,7 +3166,7 @@ export default function Booking({ user }) {
             }}
             active />}
           {printMode === "ledger" && <div className="booking-ledger-print">
-            <h1>{romanHindi(user?.branding?.name || user?.tenant_name || site?.name)} · रसीद बही</h1>
+            <h1>{user?.branding?.name || user?.tenant_name || site?.name} · रसीद बही</h1>
             <p>{[user?.branding?.address, user?.branding?.city, user?.branding?.state,
               user?.branding?.mobile].filter(Boolean).map(romanHindi).join(" · ")}</p>
             <p>ट्रिप: {ledgerTrip?.trip_ref || ""} · दिनांक: {dmy(ledgerDate)}</p>

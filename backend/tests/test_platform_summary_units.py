@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 
 import db
 import server
@@ -10,10 +11,24 @@ def test_tenant_keys_fit_mongo_database_name_limit(monkeypatch):
 
     tenant_id = db.tenant_key("A" * 60, "B" * 60)
     duplicate_id = db.tenant_key("A" * 60, "B" * 60, collision_index=2)
+    legacy_oversized_id = "Naidu_Transport_HGT_NGP_NaiduJi_2"
+    legacy_db_name = db.tenant_db_name(legacy_oversized_id)
 
     assert tenant_id != duplicate_id
     assert len(db.tenant_db_name(tenant_id).encode("utf-8")) <= db.MAX_MONGO_DATABASE_NAME_BYTES
     assert len(db.tenant_db_name(duplicate_id).encode("utf-8")) <= db.MAX_MONGO_DATABASE_NAME_BYTES
+    assert len(legacy_db_name.encode("utf-8")) <= 38
+    assert legacy_db_name != f"fleet_db_{legacy_oversized_id}"
+    assert db.tenant_db_name("short_tenant") == "fleet_db_short_tenant"
+
+
+def test_tenant_db_name_shortens_old_ids_deterministically(monkeypatch):
+    monkeypatch.setattr(db, "BASE_DB", "fleet_db")
+    tenant_id = "Naidu_Transport_HGT_NGP_NaiduJi_2"
+    prefix = tenant_id.encode("utf-8")[:20].decode("utf-8").rstrip("_")
+    digest = hashlib.sha256(tenant_id.encode()).hexdigest()[:8]
+
+    assert db.tenant_db_name(tenant_id) == f"fleet_db_{prefix}_{digest}"
 
 
 def test_tenant_stats_reads_counts_concurrently(monkeypatch):

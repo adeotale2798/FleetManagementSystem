@@ -380,6 +380,7 @@ describe("SiteConsole fetch cycles", () => {
     expect(controls.textContent).toContain("2. Receipt defaults");
     expect(controls.textContent).toContain("3. Optional contact details");
     expect(controls.textContent).toContain("4. Suggested goods names");
+    expect(controls.textContent).toContain("Packaging & Units");
     expect(controls.textContent).toContain("These switches apply to every site.");
     expect(controls.querySelectorAll('[aria-label^="Receipt branch name "]')).toHaveLength(3);
     const printSize = controls.querySelector('[aria-label="Receipt printer paper size"]');
@@ -456,6 +457,40 @@ describe("SiteConsole fetch cycles", () => {
       controls.querySelector('[aria-label="Remove goods suggestion अनाज"]').click();
     });
     expect(controls.querySelector('[aria-label="Remove goods suggestion अनाज"]')).toBeNull();
+    const englishWord = controls.querySelector('[aria-label="English word to translate"]');
+    const hindiTranslation = controls.querySelector('[aria-label="Hindi translation"]');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")
+        .set.call(englishWord, "bucket");
+      englishWord.dispatchEvent(new Event("input", { bubbles: true }));
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")
+        .set.call(hindiTranslation, "बाल्टी");
+      hindiTranslation.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      Array.from(controls.querySelectorAll("button"))
+        .find((button) => button.textContent.includes("Add translation")).click();
+    });
+    expect(controls.textContent).toContain("bucket");
+    expect(controls.textContent).toContain("बाल्टी");
+    const packagingCategory = Array.from(
+      controls.querySelectorAll('[data-testid="transport-hindi-dictionary"] details'),
+    ).find((details) => details.querySelector("summary").textContent.includes("Packaging & Units"));
+    await act(async () => {
+      packagingCategory.querySelector("summary").click();
+    });
+    const bagHindi = controls.querySelector('[aria-label="Hindi dictionary term Bag"]');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")
+        .set.call(bagHindi, "थैला");
+      bagHindi.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const bagAliases = controls.querySelector('[aria-label="Aliases for dictionary term Bag"]');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")
+        .set.call(bagAliases, "thaila; jhola");
+      bagAliases.dispatchEvent(new Event("input", { bubbles: true }));
+    });
 
     const saveButton = Array.from(controls.querySelectorAll("button"))
       .find((button) => button.textContent.includes("Save booking settings"));
@@ -477,6 +512,13 @@ describe("SiteConsole fetch cycles", () => {
           ],
         }),
         goods_suggestions: expect.arrayContaining(["स्थानीय अनाज"]),
+        hindi_dictionary: [{ english: "bucket", hindi: "बाल्टी" }],
+        transport_hindi_dictionary_overrides: [expect.objectContaining({
+          key: "Bag",
+          english_name: "Bag",
+          hindi_name: "थैला",
+          aliases: expect.arrayContaining(["thaila", "jhola"]),
+        })],
         receipt_controls: expect.objectContaining({
           receipt_language: "english",
           receipt_print_size: "58mm",

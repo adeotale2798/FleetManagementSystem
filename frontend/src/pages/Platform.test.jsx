@@ -169,6 +169,36 @@ describe("platform client and access management", () => {
     expect(screen.queryByTestId("manage-tenant-fleet-3")).not.toBeNull();
   });
 
+  it("counts admin logins for the selected business instead of using platform-wide totals", () => {
+    const selectedBusiness = {
+      ...summary.tenants[0],
+      admin_count: 4,
+      admins: [
+        { ...admin, username: "owner" },
+        { ...admin, username: "priyanshu" },
+        { ...admin, username: "pnaidu" },
+        { ...admin, username: "PNaidu" },
+      ],
+    };
+    useFetch.mockReturnValue({
+      data: {
+        ...summary,
+        totals: { ...summary.totals, admins: 6, active_admins: 6 },
+        tenants: [selectedBusiness, ...summary.tenants.slice(1)],
+      },
+      loading: false,
+      error: null,
+      reload: jest.fn().mockResolvedValue(undefined),
+    });
+
+    render(<MemoryRouter><Platform /></MemoryRouter>);
+    selectCustomer("fleet-1");
+    fireEvent.click(screen.getByTestId("customer-tab-users"));
+
+    expect(screen.getByTestId("admin-access-manager").textContent).toContain("4 active · 4 total");
+    expect(screen.getByTestId("admin-access-manager").textContent).not.toContain("6 active · 6 total");
+  });
+
   it("creates a licence with an optional contact email", async () => {
     const reload = jest.fn().mockResolvedValue(undefined);
     useFetch.mockReturnValue({
@@ -432,6 +462,30 @@ describe("platform client and access management", () => {
       "/platform/tenants/fleet-1/admins/fleet-admin/access",
       { admin_access: buildAdminAccessPreset("industrial_trips_only", summary.tenants[0].features) },
     );
+  });
+
+  it("keeps the customer workspace open when selecting the @owner login", () => {
+    const tenantWithOwnerLogins = {
+      ...summary.tenants[0],
+      admins: ["owner", "priyanshu", "PNaidu", "pnaidu"].map((username) => ({
+        ...admin, username, name: "Priyanshu Naidu",
+      })),
+    };
+    useFetch.mockReturnValue({
+      data: { ...summary, tenants: [tenantWithOwnerLogins, ...summary.tenants.slice(1)] },
+      loading: false,
+      error: null,
+      reload: jest.fn().mockResolvedValue(undefined),
+    });
+
+    render(<MemoryRouter><Platform /></MemoryRouter>);
+    selectCustomer("fleet-1");
+    fireEvent.click(screen.getByTestId("customer-tab-users"));
+    fireEvent.click(screen.getByTestId("select-admin-owner"));
+
+    expect(screen.getByTestId("platform-page")).not.toBeNull();
+    expect(screen.getByTestId("selected-admin-access").textContent).toContain("@owner");
+    expect(screen.getByTestId("select-admin-owner").getAttribute("aria-pressed")).toBe("true");
   });
 
   it("disables user grants that the customer subscription does not include", () => {
@@ -724,6 +778,40 @@ describe("business admin access presets", () => {
       expect(screen.getByText("RuntimeError: stats query failed")).not.toBeNull();
     });
 
+    it("shows browser errors and long diagnostics without squeezing them into table columns", () => {
+      const logRows = [{
+        id: "browser-error-1",
+        created_at: "2026-10-11T12:00:00Z",
+        source: "client",
+        method: "CLIENT",
+        path: "/booking-setup",
+        status: 0,
+        event_type: "window_error",
+        reference_id: "browser-reference-1234567890",
+        detail: "TypeError: _s is not a function",
+        traceback: "TypeError: _s is not a function\n    at renderBooking (bundle.js:1:12345)",
+      }];
+      useFetch.mockImplementation((path) => {
+        if (path === "/platform/errors") return {
+          data: { items: logRows, total: 1, page: 1, page_size: 25 },
+          loading: false,
+          error: null,
+          reload: jest.fn(),
+        };
+        throw new Error(`Unexpected data request: ${path}`);
+      });
+
+      render(<MemoryRouter><PlatformErrors /></MemoryRouter>);
+
+      expect(screen.getByText("Browser error")).not.toBeNull();
+      expect(screen.getByText("Window Error")).not.toBeNull();
+      expect(screen.getByText("/booking-setup")).not.toBeNull();
+      expect(screen.getByText("TypeError: _s is not a function")).not.toBeNull();
+      expect(screen.getByText("browser-reference-1234567890")).not.toBeNull();
+      fireEvent.click(screen.getByText("Show technical details"));
+      expect(screen.getByText(/renderBooking/)).not.toBeNull();
+    });
+
     it("applies route, status, date, and reference filters to paginated error logs", () => {
       useFetch.mockImplementation((path, params) => {
         if (path === "/platform/errors") return {
@@ -762,10 +850,18 @@ describe("business admin access presets", () => {
         from_date: "2026-10-01",
         to_date: "2026-10-11",
       }));
+      fireEvent.change(screen.getByLabelText("Filter by HTTP status"), {
+        target: { value: "0" },
+      });
+      fireEvent.click(screen.getByText("Apply filters"));
+      expect(useFetch).toHaveBeenLastCalledWith("/platform/errors", expect.objectContaining({
+        status: 0,
+      }));
       fireEvent.click(screen.getByText("Next"));
       expect(useFetch).toHaveBeenLastCalledWith("/platform/errors", expect.objectContaining({
         page: 2,
         page_size: 25,
+        status: 0,
       }));
     });
   });
