@@ -71,16 +71,19 @@ flowchart LR
 
 ## 2. Browser navigation and role design
 
-`frontend/src/App.js` loads `/api/me` when a stored `fms_token` exists, then selects the route set by role. `Layout` provides the shared navigation, quick-entry actions, global search, branding, and logout. Business feature flags filter visible navigation; platform users receive only platform routes. The owner retains site setup/access and the separate industrial Trips/LRs/Finance/Reports modules. The booking workspace has only Dashboard, Receipts and Ledger. Site managers see these booking functions only for assigned sites and retain no implicit access to industrial modules. Trips and LRs share `/trips` with a `tab` query parameter.
+`frontend/src/App.js` loads `/api/me` using a current-tab support token when one exists, otherwise the normal `fms_token`, then selects the route set by role. `Layout` provides the shared navigation, quick-entry actions, global search, branding, and logout. Customer subscription entitlements and per-admin grants filter visible navigation; guarded routes redirect to the first granted section. Platform users normally receive only platform routes. Business admins need both an individual grant and a customer subscription entitlement. Site managers remain scoped to assigned sites and are blocked from Booking when the customer's plan excludes it. A platform owner can explicitly enter a tenant-bound support session; that session runs the existing business-owner routes with full access while preserving the platform login and denying platform-administration routes. The booking workspace groups Dashboard, Trips, Receipts and Ledger; Finance, Audit and Booking Settings remain separately granted for normal customer accounts. Trips and LRs share `/trips` with a `tab` query parameter.
 
 ```mermaid
 flowchart TD
-    Start["Open app"] --> Token{"fms_token in local storage?"}
+    Start["Open app"] --> SupportToken{"Support token in this tab?"}
+    SupportToken -->|"Yes"| Me["GET /api/me"]
+    SupportToken -->|"No"| Token{"fms_token in local storage?"}
     Token -->|"No"| Login["Login screen"]
-    Token -->|"Yes"| Me["GET /api/me"]
+    Token -->|"Yes"| Me
     Me --> Valid{"Authenticated?"}
     Valid -->|"No"| Login
     Valid -->|"Yes: owner"| Shell["Business app shell"]
+    Valid -->|"Yes: platform support owner"| Shell
     Valid -->|"Yes: site_manager"| SiteShell["Assigned-site shell"]
     Valid -->|"Yes: superadmin"| PlatformShell["Platform shell"]
     Login --> AuthPost["POST /api/auth/login"]
@@ -114,9 +117,36 @@ flowchart TD
     SiteShell --> BookingLedger
     PlatformShell --> Licences["Licences and tenant activity"]
     PlatformShell --> PlatformSettings["Platform console"]
+    PlatformShell --> CustomerWorkspace["Selected customer workspace"]
+    CustomerWorkspace --> BookingSetupSupport["Booking setup support · all customers"]
+    CustomerWorkspace --> StartSupport["Open client app · explicit confirmation"]
+    StartSupport --> SupportSession["Two-hour tenant-bound support session"]
+    SupportSession --> Shell
 ```
 
-The frontend API client in `frontend/src/lib/api.js` uses `REACT_APP_BACKEND_URL` with `/api` appended, sends the stored token as a bearer credential, and clears it on a non-login 401 response. `useFetch` and `useMaster` in `frontend/src/lib/hooks.js` provide page-level read/reload behavior; pages call the API client for mutations.
+The frontend API client in `frontend/src/lib/api.js` uses `REACT_APP_BACKEND_URL` with `/api` appended, sends the current-tab support token ahead of the normal platform token, and clears only the expired support token on a support-session 401. The platform login remains in local storage and is restored when support ends. `useFetch` and `useMaster` in `frontend/src/lib/hooks.js` provide page-level read/reload behavior; pages call the API client for mutations.
+
+### Platform support-session data flow (v1.27.0)
+
+```mermaid
+flowchart LR
+    Platform["Authenticated platform owner"] -->|"POST /platform/tenants/{tid}/support-session"| Start["require_super + tenant lookup"]
+    Start --> SessionDB[("platform_db.platform_support_sessions<br/>active · tenant · actor · expiry")]
+    Start -->|"two-hour signed token"| Tab["sessionStorage for current tab"]
+    Tab -->|"Bearer support token"| API["Existing business API routes"]
+    API --> Verify["Verify platform account + active session"]
+    Verify --> TenantScope["Set tenant DB from signed token claim"]
+    TenantScope --> FullAccess["Owner-compatible principal<br/>all app sections enabled"]
+    FullAccess --> Data[("Selected tenant's existing collections")]
+    API -->|"successful support-mode writes"| History[("subscription_audit_events")]
+    Platform -->|"POST /platform/support-session/end"| Revoke["Mark support session inactive"]
+    Revoke --> SessionDB
+    Revoke --> Platform
+```
+
+`POST /api/platform/tenants/{tid}/support-session` is platform-owner-only, accepts no client-supplied permission or tenant context, records session start, and returns a token, session ID, selected tenant and expiration. `POST /api/platform/support-session/end` verifies the token, records the end and revokes the active session. The signed tenant claim—not a request header—selects the database; each request also confirms that the issuing platform account is still active and the session is not revoked. The effective owner-compatible principal has all app grants/features regardless of the tenant subscription or licence state, but platform-administration routes still reject it. It carries a separate `platform_support` actor role for records that support actor metadata. The middleware records each successful write's method, route, actor, tenant and session in customer history, without storing request bodies; data revision updates use the support tenant. The customer's saved grants, subscription, license, user role and credentials are not changed.
+
+**Platform directory performance:** `/api/platform/summary` retains its existing tenant, statistic and total response shape. Independent collection counts, revenue aggregation, last-trip lookup, and admin listing for each tenant run concurrently; tenant workloads are guarded by a semaphore capped at 12 clients, avoiding the former per-client sequential query chain without unbounded fan-out. Customer app data loads from its ordinary page endpoints after the support session starts.
 
 Booking Dashboard, Receipts and Ledger call site-scoped endpoints and display only canonical booking records. Industrial Trips, LRs, Finance and Reports use owner-only business APIs and do not request site booking records. Legacy booking URLs redirect into the new workspace; no historical site-trip or site-LR records are moved or duplicated.
 
@@ -194,15 +224,93 @@ Authentication facts:
 - Site-manager passwords are never recoverable from storage: owner assignment/reset requests store hashes, and `/sites/managers` returns manager IDs, status and access grants without password fields. New manager passwords are SHA-256 pre-hashed before bcrypt; legacy direct-bcrypt hashes remain verifiable. The password must be non-empty but has no configured minimum/maximum password-length policy; short passwords are still weak. The owner UI holds a just-entered temporary password in component memory only long enough to copy it after assignment/reset; it does not persist that value, and the owner must reset the credential if it is lost.
 - `current_user` looks up the principal and permits only the `owner` role for industrial business endpoints, then uses its tenant context.
 - `site_user` resolves the principal for identity and site APIs; site routes enforce owner/site-manager role, tenant, site assignment and action scope. `/api/me` identity resolution remains available to site managers.
-- `/api/platform/...` routes use `require_super`, which independently resolves and permits only `superadmin`; platform users do not receive tenant business API access.
+- `/api/platform/...` routes use `require_super`, which independently resolves and permits only a normal `superadmin` token; ordinary platform logins do not receive tenant business API access. The explicit support-session token is separately tenant-bound and is denied platform-administration routes.
+- For owner requests, `current_user` and the owner branch of `site_user` also pass the HTTP request path through `backend/access_control.py`. That shared policy classifies API paths and checks the individual admin's grant; an unclassified business route fails closed. `/api/me` and tenant sync revision remain available for session setup and live refresh.
 - `/api/health` is outside the `/api` router. Login and static file retrieval do not require `current_user`; review file exposure implications before changing upload behavior.
-- The per-tenant feature map is merged in `/api/me` and used by the frontend shell; it is not a backend endpoint policy.
+- Customer subscription entitlements (`tenants.subscription_access`) and admin section grants (`users.admin_access`) are independent limits: an owner needs both. Legacy tenants without a saved subscription map retain their prior feature-cap behavior until assigned a subscription. Site managers require Booking to be included in the tenant subscription; site/action grants continue to impose additional restrictions.
+
+### Platform-managed business-admin access
+
+**Platform workspace and audit recorded 10 October 2026 (v1.22.0):** The platform-owner UI separates the client directory, plan catalogue and platform settings. A selected customer has Overview, Subscription, Users & access and Change history tabs; its admin accounts are selected individually before grants are edited. Subscription, admin grant, licence status, plan-template and password-reset mutations append an audit event to `platform_db.subscription_audit_events`. Customer history is queried by tenant ID, while global recent activity is superadmin-only. Event details never contain entered password values.
+
+**Platform management UI refresh recorded 10 October 2026 (v1.23.0):** The client directory now presents searchable, status-filtered customer rows that open the existing customer workspace. User grants can be drafted from an all-included subscription preset, with individual entitlement groups collapsed into count summaries until opened. These are presentation and client-side draft conveniences only: API contracts, subscription snapshots, admin grant persistence, audit behavior, and server-side authorization are unchanged.
+
+**Platform customer operations recorded 10 October 2026 (v1.24.0):** The platform client directory can derive an attention view from the current summary response (expiring/expired or suspended licence, no assigned plan ID, or no active admin). A renewal shortcut opens the existing customer subscription editor and persists the owner-selected expiry through its existing subscription API; suspension now asks for confirmation. Built-in admin access profiles are client-side drafts that are clamped to customer entitlements and features before the existing grant-save API. No new storage, API contract, billing integration, or tenant workflow was added.
+
+**Platform owner usability refresh recorded 10 October 2026 (v1.25.0):** The existing client route opens with its attention filter active; the All customers filter remains directly available. Recommended row actions and the visual licence lifecycle are derived from the existing `/platform/summary` tenant fields. Access profiles include their human-readable grant preview in the client UI; profile selection continues to create a local draft constrained by the subscription and feature map, saved through the existing admin access endpoint. No backend, persistence, or billing changes.
+
+**Platform subscription editor display fix recorded 10 October 2026 (v1.25.1):** Shared modals render through a portal attached to `document.body`, avoiding fixed-position clipping and containing-block behavior from animated page ancestors. The dialog panel is viewport-height constrained with a minimum-height-zero flex scroll region; the subscription editor also uses a wider layout and clearer section hierarchy. Only frontend presentation and dialog semantics change.
+
+**Platform-managed Booking support recorded 10 October 2026 (v1.26.0):** Every selected customer's workspace shows a Booking setup tab. `PlatformBookingSettings.jsx` calls platform-scoped site-operations routes for receipt visibility, sites/configuration/categories, receipt-logo uploads, and site-manager assignment/access/reset/deactivation. Each route independently requires `require_super`, verifies the selected tenant and calls `set_tenant(tenant_id)` before delegating to the established `site_ops.py` handlers. Customer admins may continue to use their own Booking setup; platform access no longer depends on their grant. Site-manager login records remain scoped by tenant ID in `platform_db.users`. No migration, billing behavior, or manager-fee record was added. Temporary generated credentials are returned only by the create/reset response and shown in the browser support page.
+
+**Full client support and summary performance recorded 10 October 2026 (v1.27.0):** A customer-workspace action creates an auditable, two-hour, revocable support session, then reuses the normal app screens under a support-marked owner-compatible principal. The tab-scoped token binds the active platform account, selected tenant, and session; it leaves the persistent platform token untouched. Subscription/admin entitlements are elevated only for this session, platform APIs remain denied, and successful writes are attributed to the platform actor in tenant change history and receipt entry labels. Booking setup remains available in every customer workspace and uses separate platform-scoped APIs. Platform summary queries now use bounded concurrency while keeping their response payload. No customer grants or business records are rewritten to start support.
+
+**Platform management usability and reliability recorded 10 October 2026 (v1.28.0):** The per-customer access workspace selects an active business admin by default and reports effective enabled sections after both subscription and legacy module-feature caps. Global plan-template audit events are labeled as Platform activity, while tenant-scoped events resolve to the customer name. Plan deletion retains the fetched template for its audit record and continues to reject templates assigned to customers.
+
+**Renewal queue and readable audit history recorded 10 October 2026 (v1.29.0):** The platform directory has a Renewals filter for licences expiring within 30 days or already expired; a row action opens the selected customer's subscription editor directly. Customer history formats subscription and individual-admin grant diffs using the section catalog. Subscription audit records count only admins whose saved grants were actually reduced, not every admin inspected during clamping.
+
+```mermaid
+flowchart TD
+    Owner["Platform owner"] --> Console["Platform.jsx<br/>customer workspace"]
+    Console --> BookingUI["Booking setup tab<br/>available for every client"]
+    BookingUI --> BookingAPI["Platform-scoped Booking APIs"]
+    BookingAPI --> SuperGuard["require_super + selected-tenant check"]
+    SuperGuard --> TenantContext["set_tenant(tenant_id)"]
+    TenantContext --> ExistingOps["Existing site_ops.py handlers<br/>validation · tenant scope · audit"]
+    ExistingOps --> TenantDB[("Selected tenant DB<br/>settings · sites · categories · site audit")]
+    ExistingOps --> PlatformUsers[("platform_db.users<br/>tenant-scoped site-manager logins")]
+    BookingUI -. "receipt logo upload" .-> TenantContext
+
+    Console -->|"explicit, confirmed action"| Start["Start support session"]
+    Start --> Session["Persist active session<br/>record start audit"]
+    Session --> Token["Two-hour token<br/>current tab · one tenant"]
+    Token --> ExistingApp["Existing client app screens<br/>normal tenant APIs"]
+    ExistingApp --> SupportAuth["Validate platform owner,<br/>tenant and active session"]
+    SupportAuth --> TenantDB
+    SupportAuth --> WriteAudit["Audit successful support writes<br/>in customer history"]
+    SupportAuth -. "denied" .-> PlatformAPI["Platform administration APIs"]
+```
+
+**Subscription controls recorded 10 October 2026 (v1.21.0):** `platform_db.subscription_plans` stores editable plan templates and optional display-only INR monthly/annual prices. Four suggested plans are inserted at first startup when the plan catalogue is empty. New or reassigned customer licences copy the plan name, prices and complete section map into the tenant record; the snapshot is independent of later template edits. Customer-specific changes can be made during assignment. Subscription changes clamp current owner-admin grants, and both browser routes and backend API authorization enforce the tenant cap. Price fields do not trigger billing, and the existing manual Active/Suspended and expiry lifecycle is unchanged.
+
+**Platform client/licence UX recorded 10 October 2026 (v1.20.0):** the platform console now treats each client as the scope for licence configuration and its business-admin access workspace. Search and status filters operate on the tenant directory; access presets only create editable drafts, and saved admin grants continue to be persisted separately on the platform user record.
+
+**Architecture change recorded 09 October 2026 (v1.19.0):** business-owner access now has a platform-controlled grant layer between authentication and tenant route handlers.
+
+`platform_db.users.admin_access` stores the `owner` login's grant map; the platform console selects a business admin, drafts all section grants, and persists the complete map through `PUT /api/platform/tenants/{tenant_id}/admins/{username}/access`. The route validates exact supported keys and boolean values, scopes the target login to the specified tenant, and rejects Industrial grants that exceed the tenant's licence. New business admins are created with every grant disabled. Existing users with no `admin_access` field are treated as legacy allow-all until the platform owner saves an explicit map; once a map exists, missing or false keys deny access.
+
+The frontend's `frontend/src/lib/adminAccess.js` mirrors the grant catalog for navigation, direct-route guards, dashboard sections, and subscription-aware routing. Backend checks remain authoritative. Search results, dashboard summaries, and trip responses also filter nested/aggregate fields, so granting a dashboard or trip page does not automatically expose Finance, LR, Vehicle, or Team content. Trip and LR forms receive only the supporting route/vehicle/driver/party lookup fields necessary to link operational records when the corresponding management module is not granted. Changes apply on the next authenticated request; access revocation does not require issuing a new JWT.
+
+```mermaid
+flowchart LR
+    Super["Platform owner"] --> Console["Platform console<br/>plan catalogue + client directory + access workspace"]
+    Console -->|"POST/PUT/DELETE plan"| Plans[("<DB_NAME>_platform.subscription_plans<br/>reusable plan templates")]
+    Console -->|"assign/edit subscription snapshot"| Tenant["Platform tenant record<br/>subscription_access + reference prices + expiry"]
+    Console -->|"PUT access map"| PlatformAPI["Platform API<br/>validate keys + tenant/admin scope"]
+    PlatformAPI --> Users[("<DB_NAME>_platform.users<br/>admin_access")]
+    PlatformAPI --> Audit[("<DB_NAME>_platform.subscription_audit_events<br/>append-only owner activity")]
+    Audit --> History["Tenant history + platform activity<br/>superadmin-only"]
+    Login["Business admin login"] --> Me["GET /api/me"]
+    Me -->|"admin grants + tenant entitlements"| React["React route guards + filtered navigation"]
+    React -->|"tenant bearer request"| Auth["current_user / site_user"]
+    Auth --> Policy["Request path → access_control.py"]
+    Users --> Policy
+    Tenant --> Policy
+    Plans -. "template only; assignment snapshots" .-> Tenant
+    Policy --> Decision{"Admin grant AND plan entitlement?"}
+    Decision -->|"Yes"| Handler["Tenant API handler<br/>grant-filtered response"]
+    Decision -->|"No / unknown route"| Deny["403 Forbidden"]
+```
+
+The shared section catalog is: Booking operations (`booking`); Booking Finance, Audit, and Settings (`booking_finance`, `booking_audit`, `booking_settings`); and Industrial Dashboard, Trips, LRs, Vehicles, Parties, Team, Finance, Reports, Tracking, and Settings (`industrial_*`). Subscription plans and customer snapshots use this same complete boolean map; derived legacy tenant features remain an additional cap for Industrial modules.
+
+The platform console presents reusable plans and a searchable client directory with status filters and per-client expiry, assigned plan/prices, activity and admin summaries. Plan edits only affect later assignments. Selecting a client scopes its subscription editor and admin permission workspace; customer subscription snapshots remain on tenant records, while individual grants remain on platform user records. Full Booking, Industrial Trips only and Clear all are UI presets that produce editable drafts, not separate permission rules. A changed admin-access draft must be explicitly saved; switching client/admin prompts before discarding edits. Neither plan checkboxes nor presets override server-enforced subscription caps. Site managers are denied Booking API use when the tenant subscription omits Booking.
 
 ### Database placement
 
 | Data | Database | Examples |
 |---|---|---|
-| Platform users, licences and platform errors | `<DB_NAME>_platform` | `users`, `tenants`, `error_logs` |
+| Platform users, subscription plans, licences, owner audit history and platform errors | `<DB_NAME>_platform` | `users`, `subscription_plans`, `tenants`, `subscription_audit_events`, `error_logs` |
 | Primary tenant's business data | `<DB_NAME>` | Tenant `naidu` maps to base database |
 | Other tenants' business data | `<DB_NAME>_<tenant_id>` | Separate tenant collections; tenant IDs are generated from business/owner names with uniqueness suffixes |
 
@@ -215,7 +323,7 @@ Operational collections referenced by the code include `settings`, `trips`, `lrs
 - **Finance and reports:** `/finance/*`, `/reports/*`, search and industrial profiles use legacy/industrial source collections. The shared `expenses`, `ledger` and `cashbook` collections can also contain site-tagged booking postings; industrial balances, statements, cash positions, expenses, trip costs, cashbook views and charts explicitly exclude records with `site_id`. Site dashboard/report paths use site-scoped booking records and tagged expense/posting data; there is no combined company-wide financial read model.
 - **Shared masters:** Legacy and site trip resource selectors use the same tenant `vehicles` and `drivers` collections. The site trip-resource endpoint returns the assignable master fields to an owner or to a site manager with `trips:read` or `trips:create`, after verifying assigned-site scope. Vehicle/driver option loading is independent from trip-list/dashboard reads so create-only managers can still assign masters when allowed to create bookings. Site trips retain the selected master IDs plus truck/driver snapshots. Site receiver identity is tracked in `site_receivers`; a related party may be created in shared `parties` with `site_receiver_id`, while legacy sender parties use the same collection without this site identity.
 - **Daily booking ledger export:** `/sites/{site_id}/ledger/daily?operating_date=YYYY-MM-DD` reads only the authenticated tenant/site's bookings for that site's operating day, then exports the associated LRs and posted payment/reversal details in a bounded CSV. Owners are allowed; site managers require the explicit site grant `ledger:export`. The permission is included for newly assigned managers by default and can be changed in Booking Setup & Access. The export is read-only and does not use industrial `trips`, `lrs`, or payment collections.
-- **People and access:** Office staff/drivers use tenant `team`/`drivers`; site-manager login identities and grants live in platform `users`, scoped by tenant and explicit site permissions. A manager login may reference an Office Team document through `team_member_id`; this does not merge the authentication identity with the Team employee profile or copy credentials into the tenant database. The owner-only Booking Setup & Access register displays manager IDs/status/site assignments; only password hashes are stored, and temporary passwords are displayed in the browser only immediately after assignment/reset. Replacing a manager does not replace operational actor history.
+- **People and access:** Office staff/drivers use tenant `team`/`drivers`; site-manager login identities and grants live in platform `users`, scoped by tenant and explicit site permissions. Business owner section grants are also stored on platform user records and enforced in both React and FastAPI. A manager login may reference an Office Team document through `team_member_id`; this does not merge the authentication identity with the Team employee profile or copy credentials into the tenant database. The owner-only Booking Setup & Access register displays manager IDs/status/site assignments; only password hashes are stored, and temporary passwords are displayed in the browser only immediately after assignment/reset. Replacing a manager does not replace operational actor history.
 - **Existing legacy-site migration:** `/sites/migration/legacy` only previews records missing `site_id`; its confirmed operation adds `site_id` and `business_id` to the legacy documents. It does not copy or transform `trips`/`lrs` into `site_trips`/`site_lrs`, build ID mappings, or migrate financial events.
 
 Therefore each tenant database contains two active operational trip/LR models with deliberately separate UI and read paths. They are not separate MongoDB databases: operational records use distinct collections, while vehicles/drivers and selected masters are shared. Site financial postings in shared collections are tagged with `site_id`; industrial readers filter them out. No canonical-storage transition or migration is part of this release.

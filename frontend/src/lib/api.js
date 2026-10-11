@@ -10,7 +10,10 @@ export { assetUrl };
 const isWriteRequest = (config) => {
   const method = String(config?.method || "").toLowerCase();
   const url = String(config?.url || "");
-  return ["post", "put", "patch", "delete"].includes(method) && !/\/auth\/login(?:[?#]|$)/i.test(url);
+  const isSupportSessionControl = /\/platform\/(?:tenants\/[^/]+\/support-session|support-session\/end)(?:[?#]|$)/i.test(url);
+  return ["post", "put", "patch", "delete"].includes(method)
+    && !/\/auth\/login(?:[?#]|$)/i.test(url)
+    && !isSupportSessionControl;
 };
 
 const mutationSuccessLabel = (config) => {
@@ -59,7 +62,7 @@ const publishMutationStatus = (detail) => {
 };
 
 api.interceptors.request.use((cfg) => {
-  const t = localStorage.getItem("fms_token");
+  const t = sessionStorage.getItem("fms_support_token") || localStorage.getItem("fms_token");
   if (t) cfg.headers.Authorization = `Bearer ${t}`;
   return cfg;
 });
@@ -70,6 +73,9 @@ api.interceptors.response.use(
       publishMutationStatus({ state: "saved", key: mutationKey(r.config) });
       scheduleMutationSuccess(mutationSuccessLabel(r.config));
       publishDataChange(r.headers?.["x-data-revision"], { notifySelf: false });
+      if (r.headers?.["x-support-audit-status"] === "unavailable") {
+        toast("Change saved, but the platform support audit could not be recorded. Contact platform support.", "err");
+      }
       if (r.headers?.["x-data-sync-status"] === "unavailable") {
         toast("Saved, but live updates are temporarily unavailable; other devices may need to reload.", "err");
       }
@@ -78,8 +84,13 @@ api.interceptors.response.use(
   },
   (err) => {
     if (err?.response?.status === 401 && !String(err.config?.url).includes("/auth/login")) {
-      localStorage.removeItem("fms_token");
-      if (window.location.pathname !== "/login") window.location.href = "/login";
+      if (sessionStorage.getItem("fms_support_token")) {
+        sessionStorage.removeItem("fms_support_token");
+        if (!window.location.pathname.startsWith("/platform")) window.location.href = "/platform";
+      } else {
+        localStorage.removeItem("fms_token");
+        if (window.location.pathname !== "/login") window.location.href = "/login";
+      }
     }
     if (isWriteRequest(err?.config)) {
       const reason = errMsg(err);

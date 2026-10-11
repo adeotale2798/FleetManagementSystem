@@ -1,7 +1,9 @@
+import asyncio
 import os
 import re
 import traceback
 import json
+import math
 import jwt
 from typing import Optional
 
@@ -16,7 +18,14 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import ledger as L
 import storage as S
-from auth import ALGO, SECRET, current_user, hash_pw, make_token, require_super, seed_owner, site_user, verify_pw
+from access_control import (
+    ADMIN_ACCESS_DENIED, ADMIN_ACCESS_DEFAULTS, has_admin_access, normalize_admin_access,
+    validate_admin_access,
+)
+from auth import (
+    ALGO, SECRET, current_user, hash_pw, make_support_token, make_token,
+    require_platform_support, require_super, seed_owner, site_user, verify_pw,
+)
 from db import PRIMARY_TENANT, db, new_id, now_iso, platform_db, ser, sers, tenant_db, tenant_db_name, tenant_key, today
 
 app = FastAPI(title="Fleet Management System")
@@ -70,12 +79,15 @@ async def _record_data_revision(request):
         claims = jwt.decode(token, SECRET, algorithms=[ALGO])
     except jwt.PyJWTError:
         return None
-    user = await platform_db.users.find_one(
-        {"_id": claims.get("sub")}, {"tenant_id": 1},
-    )
-    if not user:
-        return None
-    scope_id = str(user.get("tenant_id") or "__platform__")
+    scope_id = claims.get("support_tenant_id")
+    if not scope_id:
+        user = await platform_db.users.find_one(
+            {"_id": claims.get("sub")}, {"tenant_id": 1},
+        )
+        if not user:
+            return None
+        scope_id = user.get("tenant_id") or "__platform__"
+    scope_id = str(scope_id)
     revision = await platform_db.data_revisions.find_one_and_update(
         {"_id": scope_id},
         {"$inc": {"revision": 1}, "$set": {"updated_at": now_iso()}},
@@ -185,6 +197,33 @@ async def log_failures(request: Request, call_next):
         and request.url.path.startswith("/api/")
         and not request.url.path.rstrip("/").endswith("/auth/login")
     ):
+        support_context = getattr(request.state, "platform_support", None)
+        if support_context and request.url.path != "/api/platform/support-session/end":
+            try:
+                await platform_db.subscription_audit_events.insert_one({
+                    "_id": new_id(),
+                    "tenant_id": support_context["tenant_id"],
+                    "actor": support_context["actor"],
+                    "action": "support.data.write",
+                    "summary": (
+                        f"Platform support performed {request.method.upper()} "
+                        f"{request.url.path}."
+                    ),
+                    "details": {
+                        "session_id": support_context["session_id"],
+                        "method": request.method.upper(),
+                        "path": request.url.path,
+                        "status_code": response.status_code,
+                    },
+                    "created_at": now_iso(),
+                })
+            except Exception as e:
+                response.headers["X-Support-Audit-Status"] = "unavailable"
+                await _record_server_error(
+                    request, 500, new_id(),
+                    "Could not record a platform support data change.",
+                    "".join(traceback.format_exception(type(e), e, e.__traceback__)),
+                )
         try:
             revision = await _record_data_revision(request)
             if revision is not None:
@@ -201,7 +240,10 @@ async def log_failures(request: Request, call_next):
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=True,
     allow_methods=["*"], allow_headers=["*"],
-    expose_headers=["X-Data-Revision", "X-Data-Sync-Status", "X-Reference-ID"],
+    expose_headers=[
+        "X-Data-Revision", "X-Data-Sync-Status", "X-Reference-ID",
+        "X-Support-Audit-Status",
+    ],
 )
 
 
@@ -264,6 +306,11 @@ async def next_number(kind):
 @app.on_event("startup")
 async def startup():
     await seed_owner()
+    await seed_subscription_plans()
+    await platform_db.subscription_audit_events.create_index(
+        [("tenant_id", 1), ("created_at", -1)],
+    )
+    await platform_db.subscription_audit_events.create_index([("created_at", -1)])
     await get_settings()
     await initialize_site_storage()
     for c, f in [("trips", "trip_no"), ("lrs", "lr_no"), ("ledger", "entity_id"),
@@ -315,7 +362,14 @@ async def data_revision(response: Response, u=Depends(site_user)):
 # ------------------------------------------------------------------ settings
 @api.get("/settings")
 async def read_settings(u=Depends(current_user)):
-    return ser(await get_settings())
+    settings = ser(await get_settings())
+    if not has_admin_access(u, "industrial_settings"):
+        routes = settings.get("routes") or []
+        if not has_admin_access(u, "industrial_finance"):
+            routes = [{key: value for key, value in route.items() if key != "default_amount"}
+                      for route in routes]
+        return {"routes": routes, "base_locations": settings.get("base_locations") or []}
+    return settings
 
 
 @api.put("/settings")
@@ -374,6 +428,12 @@ async def list_master(res: str, q: Optional[str] = None, status: Optional[str] =
                                  "status": t["status"]} if t else None
             if res == "vehicles" and t:
                 r["current_driver_name"] = t.get("driver_name")
+    if res == "vehicles" and not has_admin_access(u, "industrial_vehicles"):
+        rows = [{key: row[key] for key in ("id", "vehicle_no", "status", "current_trip")
+                 if key in row} for row in rows]
+    if res == "drivers" and not has_admin_access(u, "industrial_team"):
+        rows = [{key: row[key] for key in ("id", "name", "mobile", "status", "current_trip")
+                 if key in row} for row in rows]
     return rows
 
 
@@ -450,6 +510,9 @@ async def suggest_parties(q: str = "", u=Depends(current_user)):
     bal = await L.balances("party")
     for r in rows:
         r["balance"] = bal.get(r["id"], {}).get("balance", 0)
+    if not has_admin_access(u, "industrial_parties"):
+        rows = [{key: row[key] for key in ("id", "name", "mobile", "city") if key in row}
+                for row in rows]
     return rows
 
 
@@ -516,6 +579,25 @@ async def resolve_endpoint(payload, key):
 
 @api.post("/trips")
 async def create_trip(payload: dict, u=Depends(current_user)):
+    if not has_admin_access(u, "industrial_finance"):
+        financial_values = [
+            payload.get("trip_amount"), payload.get("expected_collection"),
+            (payload.get("temp_vehicle") or {}).get("hire_amount"),
+            (payload.get("temp_driver") or {}).get("hire_amount"),
+        ]
+        if any(value not in (None, "", 0, 0.0, "0", "0.0") for value in financial_values) or any(
+            (payload.get(field) or {}).get("paid")
+            for field in ("temp_vehicle", "temp_driver")
+        ):
+            raise HTTPException(403, "Industrial Finance access is required to enter trip amounts or hire payments.")
+    if payload.get("save_vehicle") and not has_admin_access(u, "industrial_vehicles"):
+        raise HTTPException(403, "Vehicles access is required to add a permanent fleet vehicle.")
+    if payload.get("save_driver") and not has_admin_access(u, "industrial_team"):
+        raise HTTPException(403, "Team access is required to add a permanent driver.")
+    if not has_admin_access(u, "industrial_parties") and (
+        payload.get("party_id") or (payload.get("party_name") or "").strip()
+    ):
+        raise HTTPException(403, "Parties access is required to associate a party with a trip.")
     s = await get_settings()
     mode = payload.get("mode", "indoor")
     if mode == "indoor":
@@ -697,10 +779,15 @@ async def list_trips(q: Optional[str] = None, status: Optional[str] = None,
     lr_counts, cost = await _trip_financial_totals([r["id"] for r in rows])
     for r in rows:
         n, freight = lr_counts.get(r["id"], (0, 0))
-        r["lr_count"] = n
-        r["earning"] = round(max(r.get("trip_amount") or 0, freight), 2)
-        r["trip_cost"] = cost.get(r["id"], 0)
-        r["profit"] = round(r["earning"] - r["trip_cost"], 2)
+        if has_admin_access(u, "industrial_lrs"):
+            r["lr_count"] = n
+        if has_admin_access(u, "industrial_finance"):
+            r["earning"] = round(max(r.get("trip_amount") or 0, freight), 2)
+            r["trip_cost"] = cost.get(r["id"], 0)
+            r["profit"] = round(r["earning"] - r["trip_cost"], 2)
+        else:
+            r.pop("trip_amount", None)
+            r.pop("expected_collection", None)
     return rows
 
 
@@ -722,6 +809,14 @@ async def get_trip(trip_id: str, u=Depends(current_user)):
     out["profit"] = {"earning": earning, "lr_freight": lr_freight, "expenses": expense_total,
                      "diesel": fuel_total, "total_cost": round(expense_total + fuel_total, 2),
                      "profit": round(earning - expense_total - fuel_total, 2)}
+    if not has_admin_access(u, "industrial_lrs"):
+        out.pop("lrs", None)
+    if not has_admin_access(u, "industrial_finance"):
+        for field in ("trip_amount", "expected_collection", "profit", "expenses", "fuel"):
+            out.pop(field, None)
+        for lr in out.get("lrs", []):
+            for field in ("freight", "payment_status"):
+                lr.pop(field, None)
     return out
 
 
@@ -730,6 +825,23 @@ async def update_trip(trip_id: str, payload: dict, u=Depends(current_user)):
     t = await db.trips.find_one({"_id": trip_id})
     if not t:
         raise HTTPException(404, "Trip not found")
+    if not has_admin_access(u, "industrial_finance") and any(
+        field in payload and payload[field] != t.get(field)
+        for field in ("trip_amount", "expected_collection")
+    ):
+        raise HTTPException(403, "Industrial Finance access is required to change trip amounts.")
+    if (
+        not has_admin_access(u, "industrial_finance")
+        and payload.get("status") == "Completed"
+        and t.get("trip_amount")
+        and not t.get("posted")
+    ):
+        raise HTTPException(403, "Industrial Finance access is required to post a completed trip amount.")
+    if not has_admin_access(u, "industrial_parties") and any(
+        field in payload and payload[field] != t.get(field)
+        for field in ("party_id", "party_name")
+    ):
+        raise HTTPException(403, "Parties access is required to change a trip's party.")
     for k in ("id", "_id", "trip_no", "posted", "lrs", "expenses", "fuel"):
         payload.pop(k, None)
     if payload.get("driver_id") and payload["driver_id"] != t.get("driver_id"):
@@ -751,6 +863,8 @@ async def update_trip(trip_id: str, payload: dict, u=Depends(current_user)):
 
 @api.post("/trips/{trip_id}/cancel")
 async def cancel_trip(trip_id: str, u=Depends(current_user)):
+    if not has_admin_access(u, "industrial_finance"):
+        raise HTTPException(403, "Industrial Finance access is required to cancel a trip and reverse its ledger posting.")
     t = await db.trips.find_one({"_id": trip_id})
     if not t:
         raise HTTPException(404, "Trip not found")
@@ -859,6 +973,9 @@ async def list_lrs(q: Optional[str] = None, party_id: Optional[str] = None,
     for r in rows:
         r["received"] = round(paid.get(r["id"], 0), 2)
         r["outstanding"] = round(r["freight"] - r["received"], 2)
+        if not has_admin_access(u, "industrial_finance"):
+            for field in ("freight", "received", "outstanding", "payment_status"):
+                r.pop(field, None)
     return rows
 
 
@@ -873,6 +990,9 @@ async def get_lr(lr_id: str, u=Depends(current_user)):
     out["received"] = round(sum(r["amount"] for r in rec), 2)
     out["outstanding"] = round(out["freight"] - out["received"], 2)
     out["receipts"] = sers(rec)
+    if not has_admin_access(u, "industrial_finance"):
+        for field in ("received", "outstanding", "receipts"):
+            out.pop(field, None)
     return out
 
 
@@ -892,6 +1012,8 @@ async def update_lr(lr_id: str, payload: dict, u=Depends(current_user)):
 
 @api.post("/lrs/{lr_id}/cancel")
 async def cancel_lr(lr_id: str, u=Depends(current_user)):
+    if not has_admin_access(u, "industrial_finance"):
+        raise HTTPException(403, "Industrial Finance access is required to cancel an LR and reverse its ledger posting.")
     await L.reverse("lr", lr_id)
     await db.lrs.update_one({"_id": lr_id}, {"$set": {"cancelled": True, "payment_status": "Cancelled"}})
     return {"ok": True}
@@ -1698,12 +1820,26 @@ async def dashboard_monthly(months: int = 6, u=Depends(current_user)):
 
     rec = await receivables_rows()
     top_parties = [{"name": r["party"], "outstanding": r["outstanding"]} for r in rec[:5]]
+    can_finance = has_admin_access(u, "industrial_finance")
+    can_trips = has_admin_access(u, "industrial_trips")
+    can_lrs = has_admin_access(u, "industrial_lrs")
+    if not can_finance:
+        for row in series:
+            for field in ("revenue", "expenses", "collections", "profit", "diesel", "lr_freight"):
+                row[field] = 0
+        top_parties = []
+    if not can_trips:
+        for row in series:
+            row["trips"] = 0
+    if not can_lrs:
+        for row in series:
+            row["lrs"] = 0
     return {"series": series, "top_parties": top_parties,
             "totals": {
-                "revenue": round(sum(s["revenue"] for s in series), 2),
-                "expenses": round(sum(s["expenses"] for s in series), 2),
-                "collections": round(sum(s["collections"] for s in series), 2),
-                "profit": round(sum(s["profit"] for s in series), 2)}}
+                "revenue": round(sum(s["revenue"] for s in series), 2) if can_finance else 0,
+                "expenses": round(sum(s["expenses"] for s in series), 2) if can_finance else 0,
+                "collections": round(sum(s["collections"] for s in series), 2) if can_finance else 0,
+                "profit": round(sum(s["profit"] for s in series), 2) if can_finance else 0}}
 
 
 @api.get("/lr-stats")
@@ -1732,19 +1868,82 @@ async def lr_stats(days: int = 30, u=Depends(current_user)):
     outstanding = round(freight - received, 2)
     trend = [{"date": (t - timedelta(days=days - 1 - i)).isoformat()[5:],
               "lrs": per_day.get((t - timedelta(days=days - 1 - i)).isoformat(), 0)} for i in range(days)]
-    return {
+    result = {
         "total": len(rows), "status": [{"name": k, "value": v} for k, v in status.items() if v],
         "freight": round(freight, 2), "received": round(received, 2), "outstanding": outstanding,
         "trend": trend,
         "top_senders": [{"name": k, "freight": v} for k, v in sorted(senders.items(), key=lambda x: -x[1])[:5]],
         "top_routes": [{"name": k, "lrs": v} for k, v in sorted(routes.items(), key=lambda x: -x[1])[:5]],
     }
+    if not has_admin_access(u, "industrial_finance"):
+        result.update({"status": [], "freight": 0, "received": 0, "outstanding": 0,
+                       "top_senders": []})
+    return result
 
 
 DEFAULT_FEATURES = {
     "trips": True, "vehicles": True, "parties": True, "team": True, "finance": True,
     "reports": True, "tracking": True, "lr_charts": True, "dashboard_charts": True,
 }
+
+
+def subscription_features(access):
+    return {
+        "trips": access.get("industrial_trips") is True or access.get("industrial_lrs") is True,
+        "vehicles": access.get("industrial_vehicles") is True,
+        "parties": access.get("industrial_parties") is True,
+        "team": access.get("industrial_team") is True,
+        "finance": access.get("industrial_finance") is True,
+        "reports": access.get("industrial_reports") is True,
+        "tracking": access.get("industrial_tracking") is True,
+        "lr_charts": access.get("industrial_lrs") is True,
+        "dashboard_charts": access.get("industrial_dashboard") is True,
+    }
+
+
+def _plan_access(enabled_keys):
+    return {key: key in enabled_keys for key in ADMIN_ACCESS_DEFAULTS}
+
+
+async def seed_subscription_plans():
+    if await platform_db.subscription_plans.count_documents({}):
+        return
+    booking = {"booking", "booking_finance", "booking_audit", "booking_settings"}
+    industrial = {
+        key for key in ADMIN_ACCESS_DEFAULTS if key.startswith("industrial_")
+    }
+    all_access = set(ADMIN_ACCESS_DEFAULTS)
+    now = now_iso()
+    await platform_db.subscription_plans.insert_many([
+        {
+            "_id": "booking-essentials",
+            "name": "Booking Essentials",
+            "description": "Booking operations: Dashboard, Trips, Receipts and Ledger.",
+            "monthly_price": None, "annual_price": None,
+            "access": _plan_access({"booking"}), "active": True, "created_at": now,
+        },
+        {
+            "_id": "booking-complete",
+            "name": "Booking Complete",
+            "description": "Booking operations plus Finance, Audit and Booking settings.",
+            "monthly_price": None, "annual_price": None,
+            "access": _plan_access(booking), "active": True, "created_at": now,
+        },
+        {
+            "_id": "industrial-modules",
+            "name": "Industrial Modules",
+            "description": "Industrial modules; choose exact admin access per customer.",
+            "monthly_price": None, "annual_price": None,
+            "access": _plan_access(industrial), "active": True, "created_at": now,
+        },
+        {
+            "_id": "full-operations",
+            "name": "Full Operations",
+            "description": "All existing Booking and Industrial sections.",
+            "monthly_price": None, "annual_price": None,
+            "access": _plan_access(all_access), "active": True, "created_at": now,
+        },
+    ])
 
 
 @api.get("/me")
@@ -1758,8 +1957,13 @@ async def me_profile(u=Depends(site_user)):
     return {"user": {"username": u["username"], "name": u.get("name"), "role": u.get("role"),
                      "tenant_id": u.get("tenant_id"), "tenant_name": (tenant or {}).get("name", "") or company.get("name", ""),
                      "photo": company.get("owner_photo", ""), "site_ids": u.get("site_ids", []),
-                     "site_permissions": u.get("site_permissions", {})},
-            "features": feats,
+                     "site_permissions": u.get("site_permissions", {}),
+                     "admin_access": u.get("admin_access"),
+                     "tenant_access": u.get("tenant_access"),
+                     "platform_support": u.get("platform_support", False),
+                     "platform_actor": u.get("platform_actor"),
+                     "support_session_id": u.get("support_session_id")},
+            "features": ({key: True for key in DEFAULT_FEATURES} if u.get("platform_support") else feats),
             "branding": {
                 "logo": company.get("logo", ""),
                 "name": company.get("name", ""),
@@ -1858,29 +2062,85 @@ class TenantIn(BaseModel):
     city: Optional[str] = ""
     state: Optional[str] = ""
     plan: Optional[str] = "Business"
+    plan_id: Optional[str] = None
     license_days: Optional[int] = 365
+
+
+class SubscriptionPlanIn(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    monthly_price: Optional[float] = None
+    annual_price: Optional[float] = None
+    access: dict
+
+
+class TenantSubscriptionIn(BaseModel):
+    plan_id: Optional[str] = None
+    plan: str
+    monthly_price: Optional[float] = None
+    annual_price: Optional[float] = None
+    access: dict
+    license_expiry: Optional[str] = None
+    custom_requests: Optional[str] = ""
 
 
 async def tenant_stats(tid):
     tdb = tenant_db(tid)
-    out = {}
-    for coll in ("trips", "lrs", "vehicles", "parties", "drivers"):
-        out[coll] = await tdb[coll].count_documents({})
-    rev = 0.0
-    async for r in tdb.lrs.aggregate([{"$match": {"cancelled": {"$ne": True}}},
-                                      {"$group": {"_id": None, "t": {"$sum": "$freight"}}}]):
-        rev = round(r["t"], 2)
-    last = await tdb.trips.find_one(sort=[("created_at", -1)])
-    return {**out, "revenue": rev, "last_activity": (last or {}).get("created_at", "")}
+
+    async def revenue_total():
+        total = 0.0
+        async for row in tdb.lrs.aggregate([
+            {"$match": {"cancelled": {"$ne": True}}},
+            {"$group": {"_id": None, "t": {"$sum": "$freight"}}},
+        ]):
+            total = round(row["t"], 2)
+        return total
+
+    collections = ("trips", "lrs", "vehicles", "parties", "drivers")
+    counts, revenue, last_trip = await asyncio.gather(
+        asyncio.gather(*(
+            tdb[collection].count_documents({}) for collection in collections
+        )),
+        revenue_total(),
+        tdb.trips.find_one(sort=[("created_at", -1)]),
+    )
+    return {
+        **dict(zip(collections, counts)),
+        "revenue": revenue,
+        "last_activity": (last_trip or {}).get("created_at", ""),
+    }
 
 
 @api.get("/platform/tenants")
 async def platform_tenants(u=Depends(require_super)):
-    rows = []
-    for t in await platform_db.tenants.find().sort("created_at", -1).to_list(500):
-        rows.append({**ser(t), "stats": await tenant_stats(t["_id"]),
-                     "db_name": t.get("db_name") or tenant_db_name(t["_id"])})
-    return rows
+    tenants = await platform_db.tenants.find().sort("created_at", -1).to_list(500)
+    concurrency_limit = asyncio.Semaphore(12)
+
+    async def load_tenant(tenant):
+        async with concurrency_limit:
+            admins, stats = await asyncio.gather(
+                platform_db.users.find(
+                    {"tenant_id": tenant["_id"], "role": "owner"},
+                    {"password": 0},
+                ).sort("created_at", 1).to_list(500),
+                tenant_stats(tenant["_id"]),
+            )
+        admin_rows = [{
+            "username": admin["_id"],
+            "name": admin.get("name", ""),
+            "active": admin.get("active") is not False,
+            "created_at": admin.get("created_at", ""),
+            "admin_access": admin.get("admin_access"),
+        } for admin in admins]
+        return {
+            **ser(tenant),
+            "admins": admin_rows,
+            "admin_count": len(admin_rows),
+            "stats": stats,
+            "db_name": tenant.get("db_name") or tenant_db_name(tenant["_id"]),
+        }
+
+    return await asyncio.gather(*(load_tenant(tenant) for tenant in tenants))
 
 
 @api.get("/platform/errors")
@@ -1891,13 +2151,19 @@ async def platform_errors(u=Depends(require_super)):
 @api.get("/platform/summary")
 async def platform_summary(u=Depends(require_super)):
     rows = await platform_tenants(u)
+    plans = sers(await platform_db.subscription_plans.find().sort("name", 1).to_list(200))
     from datetime import date
     t = date.today().isoformat()
     active = [r for r in rows if r.get("license_status") == "Active"]
     return {
         "tenants": rows,
+        "plans": plans,
         "totals": {
             "licenses": len(rows),
+            "admins": sum(r["admin_count"] for r in rows),
+            "active_admins": sum(
+                1 for row in rows for admin in row["admins"] if admin["active"]
+            ),
             "active": len(active),
             "suspended": len([r for r in rows if r.get("license_status") != "Active"]),
             "expiring": len([r for r in active if (r.get("license_expiry") or "9999") <= t]),
@@ -1909,12 +2175,189 @@ async def platform_summary(u=Depends(require_super)):
     }
 
 
+async def record_platform_event(tenant_id, actor, action, summary, details=None):
+    await platform_db.subscription_audit_events.insert_one({
+        "_id": new_id(),
+        "tenant_id": tenant_id,
+        "actor": actor["username"],
+        "action": action,
+        "summary": summary,
+        "details": details or {},
+        "created_at": now_iso(),
+    })
+
+
+@api.post("/platform/tenants/{tid}/support-session")
+async def start_platform_support_session(tid: str, u=Depends(require_super)):
+    tenant = await platform_db.tenants.find_one({"_id": tid}, {"_id": 1, "name": 1})
+    if not tenant:
+        raise HTTPException(404, "Customer business not found.")
+    token, session_id, expires_at = make_support_token(u["username"], tid)
+    await platform_db.platform_support_sessions.insert_one({
+        "_id": session_id,
+        "username": u["username"],
+        "tenant_id": tid,
+        "active": True,
+        "created_at": now_iso(),
+        "expires_at": expires_at,
+    })
+    try:
+        await record_platform_event(
+            tid, u, "support.session.started",
+            f"Started full customer support for {tenant.get('name', tid)}.",
+            {"session_id": session_id, "expires_at": expires_at.isoformat()},
+        )
+    except Exception:
+        await platform_db.platform_support_sessions.update_one(
+            {"_id": session_id}, {"$set": {"active": False}},
+        )
+        raise
+    return {
+        "token": token,
+        "session_id": session_id,
+        "tenant_id": tid,
+        "tenant_name": tenant.get("name", ""),
+        "expires_at": expires_at.isoformat(),
+    }
+
+
+@api.post("/platform/support-session/end")
+async def end_platform_support_session(u=Depends(require_platform_support)):
+    await record_platform_event(
+        u["tenant_id"],
+        {"username": u["platform_actor"]},
+        "support.session.ended",
+        "Ended full customer support session.",
+        {"session_id": u["support_session_id"]},
+    )
+    await platform_db.platform_support_sessions.update_one(
+        {"_id": u["support_session_id"], "active": True},
+        {"$set": {"active": False, "ended_at": now_iso()}},
+    )
+    return {"ok": True}
+
+
+@api.get("/platform/tenants/{tid}/history")
+async def tenant_subscription_history(tid: str, u=Depends(require_super)):
+    if not await platform_db.tenants.find_one({"_id": tid}, {"_id": 1}):
+        raise HTTPException(404, "Business not found.")
+    return sers(await platform_db.subscription_audit_events.find(
+        {"tenant_id": tid},
+    ).sort("created_at", -1).to_list(100))
+
+
+@api.get("/platform/activity")
+async def platform_activity(u=Depends(require_super)):
+    events = await platform_db.subscription_audit_events.find().sort(
+        "created_at", -1,
+    ).to_list(100)
+    tenant_ids = {event["tenant_id"] for event in events if event.get("tenant_id")}
+    tenants = {
+        row["_id"]: row.get("name", row["_id"])
+        for row in await platform_db.tenants.find(
+            {"_id": {"$in": list(tenant_ids)}},
+            {"name": 1},
+        ).to_list(100)
+    } if tenant_ids else {}
+    return [{**ser(event), "tenant_name": (
+                "Platform" if not event.get("tenant_id")
+                else tenants.get(event["tenant_id"], "Deleted business")
+            )}
+            for event in events]
+
+
+def _validate_subscription_plan(body):
+    name = body.name.strip()
+    if not name or len(name) > 80:
+        raise HTTPException(400, "Plan name must be between 1 and 80 characters.")
+    for label, amount in (("Monthly", body.monthly_price), ("Annual", body.annual_price)):
+        if amount is not None and (not math.isfinite(amount) or amount < 0):
+            raise HTTPException(400, f"{label} price must be a non-negative number.")
+    access = validate_admin_access(body.access)
+    return {
+        "name": name,
+        "name_key": name.casefold(),
+        "description": (body.description or "").strip(),
+        "monthly_price": body.monthly_price,
+        "annual_price": body.annual_price,
+        "access": access,
+    }
+
+
+async def _ensure_plan_name_available(name_key, exclude_id=None):
+    plans = await platform_db.subscription_plans.find({}, {"name": 1}).to_list(200)
+    if any(row["_id"] != exclude_id and row.get("name", "").casefold() == name_key
+           for row in plans):
+        raise HTTPException(409, "A subscription plan with this name already exists.")
+
+
+@api.post("/platform/plans")
+async def create_subscription_plan(body: SubscriptionPlanIn, u=Depends(require_super)):
+    values = _validate_subscription_plan(body)
+    await _ensure_plan_name_available(values["name_key"])
+    plan_id = new_id()
+    record = {
+        "_id": plan_id,
+        **values,
+        "active": True,
+        "created_at": now_iso(),
+        "created_by": u["username"],
+    }
+    await platform_db.subscription_plans.insert_one(record)
+    await record_platform_event(
+        None, u, "plan.created", f"Created subscription plan {values['name']}.",
+        {"plan_id": plan_id},
+    )
+    return ser(record)
+
+
+@api.put("/platform/plans/{plan_id}")
+async def update_subscription_plan(
+    plan_id: str, body: SubscriptionPlanIn, u=Depends(require_super),
+):
+    existing = await platform_db.subscription_plans.find_one({"_id": plan_id})
+    if not existing:
+        raise HTTPException(404, "Subscription plan not found.")
+    values = _validate_subscription_plan(body)
+    await _ensure_plan_name_available(values["name_key"], plan_id)
+    await platform_db.subscription_plans.update_one(
+        {"_id": plan_id}, {"$set": {**values, "updated_at": now_iso(),
+                                    "updated_by": u["username"]}},
+    )
+    await record_platform_event(
+        None, u, "plan.updated", f"Updated subscription plan {values['name']}.",
+        {"plan_id": plan_id},
+    )
+    return ser(await platform_db.subscription_plans.find_one({"_id": plan_id}))
+
+
+@api.delete("/platform/plans/{plan_id}")
+async def delete_subscription_plan(plan_id: str, u=Depends(require_super)):
+    existing = await platform_db.subscription_plans.find_one({"_id": plan_id})
+    if not existing:
+        raise HTTPException(404, "Subscription plan not found.")
+    assigned = await platform_db.tenants.count_documents({"plan_id": plan_id})
+    if assigned:
+        raise HTTPException(409, "This plan is assigned to customers. Reassign them before deleting it.")
+    await platform_db.subscription_plans.delete_one({"_id": plan_id})
+    await record_platform_event(
+        None, u, "plan.deleted", f"Deleted subscription plan {existing['name']}.",
+        {"plan_id": plan_id},
+    )
+    return {"ok": True}
+
+
 @api.post("/platform/tenants")
 async def create_tenant(body: TenantIn, u=Depends(require_super)):
     from datetime import date, timedelta
     username = body.owner_username.strip().lower()
     if await platform_db.users.find_one({"_id": username}):
         raise HTTPException(400, "This login username is already taken")
+    plan = None
+    if body.plan_id:
+        plan = await platform_db.subscription_plans.find_one({"_id": body.plan_id, "active": True})
+        if not plan:
+            raise HTTPException(400, "Select an active subscription plan.")
     base = tenant_key(body.name, body.owner_name)
     tid, n = base, 2
     while await platform_db.tenants.find_one({"_id": tid}):
@@ -1925,20 +2368,32 @@ async def create_tenant(body: TenantIn, u=Depends(require_super)):
         "created_by_id": str(u.get("_id") or u["username"]),
         "created_by_login": u["username"],
         "created_by_name": u.get("name", ""),
-        "created_by_role": u.get("role", ""),
+        "created_by_role": u.get("actor_role") or u.get("role", ""),
         "created_at": created_at,
     }
-    await platform_db.tenants.insert_one({
+    tenant_record = {
         "_id": tid, "name": body.name.strip(), "owner_name": body.owner_name.strip(),
         "owner_username": username, "mobile": body.mobile, "city": body.city, "state": body.state,
-        "plan": body.plan, "license_status": "Active",
+        "plan": plan["name"] if plan else body.plan, "license_status": "Active",
         "license_start": date.today().isoformat(),
         "license_expiry": (date.today() + timedelta(days=int(body.license_days or 365))).isoformat(),
         **creator, "db_name": dbn,
-    })
+    }
+    if plan:
+        tenant_record.update({
+            "plan_id": plan["_id"],
+            "subscription_access": dict(plan["access"]),
+            "subscription_monthly_price": plan.get("monthly_price"),
+            "subscription_annual_price": plan.get("annual_price"),
+            "features": subscription_features(plan["access"]),
+            "subscription_updated_at": created_at,
+            "subscription_updated_by": u["username"],
+        })
+    await platform_db.tenants.insert_one(tenant_record)
     await platform_db.users.insert_one({
         "_id": username, "name": body.owner_name.strip(), "password": hash_pw(body.owner_password),
-        "role": "owner", "tenant_id": tid, "active": True, **creator,
+        "role": "owner", "tenant_id": tid, "active": True,
+        "admin_access": dict(ADMIN_ACCESS_DENIED), **creator,
     })
     tdb = tenant_db(tid)
     company = dict(DEFAULT_SETTINGS["company"])
@@ -1948,17 +2403,171 @@ async def create_tenant(body: TenantIn, u=Depends(require_super)):
     await tdb.settings.insert_one({
         **DEFAULT_SETTINGS, "company": company, "base_locations": [], "routes": [],
     })
+    await record_platform_event(
+        tid, u, "licence.created", f"Created customer licence for {body.name.strip()}.",
+        {"plan_id": tenant_record.get("plan_id"), "plan": tenant_record["plan"]},
+    )
     return {"id": tid, "db_name": dbn, "ok": True}
 
 
 @api.put("/platform/tenants/{tid}")
 async def update_tenant(tid: str, payload: dict, u=Depends(require_super)):
+    existing = await platform_db.tenants.find_one({"_id": tid})
+    if not existing:
+        raise HTTPException(404, "Business not found.")
     allowed = {k: v for k, v in payload.items()
                if k in ("name", "owner_name", "mobile", "city", "state", "plan",
                         "license_status", "license_expiry", "notes", "features", "custom_requests")}
     await platform_db.tenants.update_one({"_id": tid}, {"$set": allowed})
     t = await platform_db.tenants.find_one({"_id": tid})
+    if "license_status" in allowed and existing.get("license_status") != allowed["license_status"]:
+        await record_platform_event(
+            tid, u, "licence.status",
+            f"Licence status changed from {existing.get('license_status', 'Unknown')} "
+            f"to {allowed['license_status']}.",
+            {"from": existing.get("license_status"), "to": allowed["license_status"]},
+        )
     return ser(t)
+
+
+@api.put("/platform/tenants/{tid}/subscription")
+async def update_tenant_subscription(
+    tid: str, body: TenantSubscriptionIn, u=Depends(require_super),
+):
+    tenant = await platform_db.tenants.find_one({"_id": tid})
+    if not tenant:
+        raise HTTPException(404, "Business not found.")
+    if body.plan_id and not await platform_db.subscription_plans.find_one({"_id": body.plan_id}):
+        raise HTTPException(400, "Subscription plan not found.")
+    plan_name = body.plan.strip()
+    if not plan_name or len(plan_name) > 80:
+        raise HTTPException(400, "Plan name must be between 1 and 80 characters.")
+    for label, amount in (("Monthly", body.monthly_price), ("Annual", body.annual_price)):
+        if amount is not None and (not math.isfinite(amount) or amount < 0):
+            raise HTTPException(400, f"{label} price must be a non-negative number.")
+    access = validate_admin_access(body.access)
+    previous_access = tenant.get("subscription_access") or {}
+    previous_snapshot = {
+        "plan_id": tenant.get("plan_id"),
+        "plan": tenant.get("plan"),
+        "monthly_price": tenant.get("subscription_monthly_price"),
+        "annual_price": tenant.get("subscription_annual_price"),
+        "license_expiry": tenant.get("license_expiry"),
+        "access": previous_access,
+    }
+    now = now_iso()
+    await platform_db.tenants.update_one(
+        {"_id": tid},
+        {"$set": {
+            "plan_id": body.plan_id,
+            "plan": plan_name,
+            "subscription_access": access,
+            "subscription_monthly_price": body.monthly_price,
+            "subscription_annual_price": body.annual_price,
+            "features": subscription_features(access),
+            "license_expiry": body.license_expiry or "",
+            "custom_requests": (body.custom_requests or "").strip(),
+            "subscription_updated_at": now,
+            "subscription_updated_by": u["username"],
+        }},
+    )
+    admins = await platform_db.users.find(
+        {"tenant_id": tid, "role": "owner"}, {"admin_access": 1},
+    ).to_list(500)
+    admins_clamped = 0
+    for admin in admins:
+        grants = normalize_admin_access(admin.get("admin_access"))
+        capped = {key: grants[key] and access[key] for key in ADMIN_ACCESS_DEFAULTS}
+        if capped != grants:
+            admins_clamped += 1
+        await platform_db.users.update_one(
+            {"_id": admin["_id"], "tenant_id": tid, "role": "owner"},
+            {"$set": {"admin_access": capped}},
+        )
+    changed_sections = [
+        key for key in ADMIN_ACCESS_DEFAULTS if previous_access.get(key) != access[key]
+    ]
+    await record_platform_event(
+        tid, u, "subscription.updated",
+        f"Updated subscription to {plan_name}; licence expires {body.license_expiry or 'without an expiry date'}.",
+        {
+            "before": previous_snapshot,
+            "after": {
+                "plan_id": body.plan_id,
+                "plan": plan_name,
+                "monthly_price": body.monthly_price,
+                "annual_price": body.annual_price,
+                "license_expiry": body.license_expiry or "",
+                "access": access,
+            },
+            "changed_sections": changed_sections,
+            "admins_clamped": admins_clamped,
+        },
+    )
+    return ser(await platform_db.tenants.find_one({"_id": tid}))
+
+
+@api.put("/platform/tenants/{tid}/admins/{username}/access")
+async def update_tenant_admin_access(
+    tid: str, username: str, payload: dict, u=Depends(require_super),
+):
+    tenant = await platform_db.tenants.find_one({"_id": tid})
+    if not tenant:
+        raise HTTPException(404, "Business not found")
+    admin = await platform_db.users.find_one({
+        "_id": username.strip().lower(), "tenant_id": tid, "role": "owner",
+    })
+    if not admin:
+        raise HTTPException(404, "Business admin not found")
+    access = validate_admin_access(payload.get("admin_access"))
+    previous_access = normalize_admin_access(admin.get("admin_access"))
+    subscription_access = tenant.get("subscription_access")
+    if isinstance(subscription_access, dict):
+        unavailable_by_plan = [
+            key for key, enabled in access.items()
+            if enabled and subscription_access.get(key) is not True
+        ]
+        if unavailable_by_plan:
+            raise HTTPException(
+                400,
+                "This section is not included in the customer subscription: "
+                + ", ".join(unavailable_by_plan),
+            )
+    features = {**DEFAULT_FEATURES, **(tenant.get("features") or {})}
+    unavailable = [
+        access_key for access_key, feature_key in {
+            "industrial_trips": "trips", "industrial_lrs": "trips",
+            "industrial_vehicles": "vehicles", "industrial_parties": "parties",
+            "industrial_team": "team", "industrial_finance": "finance",
+            "industrial_reports": "reports", "industrial_tracking": "tracking",
+        }.items()
+        if access[access_key] and features.get(feature_key) is False
+    ]
+    if unavailable:
+        raise HTTPException(
+            400,
+            "Enable the licensed module before granting admin access: "
+            + ", ".join(unavailable),
+        )
+    await platform_db.users.update_one(
+        {"_id": admin["_id"], "tenant_id": tid, "role": "owner"},
+        {"$set": {"admin_access": access}},
+    )
+    changed_sections = [
+        key for key in ADMIN_ACCESS_DEFAULTS if previous_access[key] != access[key]
+    ]
+    await record_platform_event(
+        tid, u, "admin.access",
+        f"Updated access for @{admin['_id']}.",
+        {
+            "username": admin["_id"],
+            "before": previous_access,
+            "after": access,
+            "changed_sections": changed_sections,
+        },
+    )
+    return {"ok": True, "tenant_id": tid, "username": admin["_id"],
+            "admin_access": access}
 
 
 @api.post("/platform/tenants/{tid}/reset-password")
@@ -1970,6 +2579,10 @@ async def reset_tenant_password(tid: str, payload: dict, u=Depends(require_super
     if len(pw) < 6:
         raise HTTPException(400, "Password must be at least 6 characters")
     await platform_db.users.update_one({"_id": t["owner_username"]}, {"$set": {"password": hash_pw(pw)}})
+    await record_platform_event(
+        tid, u, "admin.password_reset", f"Reset the owner password for @{t['owner_username']}.",
+        {"username": t["owner_username"]},
+    )
     return {"ok": True}
 
 
@@ -2021,6 +2634,17 @@ async def alerts(u=Depends(current_user)):
     out["employee_advances"] = sorted([
         {"id": k, "name": team.get(k, {}).get("name", "-"), "amount": b["balance"]}
         for k, b in ebal.items() if b["balance"] > 0.5], key=lambda r: -r["amount"])
+    if not has_admin_access(u, "industrial_vehicles"):
+        out["vehicle_docs"] = []
+    if not has_admin_access(u, "industrial_team"):
+        out["driver_licence"] = []
+        out["driver_advances"] = []
+        out["employee_advances"] = []
+    if not has_admin_access(u, "industrial_finance"):
+        out["overdue"] = []
+        out["pending_receivables"] = []
+        out["driver_advances"] = []
+        out["employee_advances"] = []
     return out
 
 
@@ -2029,45 +2653,58 @@ async def alerts(u=Depends(current_user)):
 async def dashboard(u=Depends(current_user)):
     t = today()
     trips_today = sers(await db.trips.find({"start_date": t}).sort("created_at", -1).to_list(100))
+    can_trips = has_admin_access(u, "industrial_trips")
+    can_lrs = has_admin_access(u, "industrial_lrs")
+    can_vehicles = has_admin_access(u, "industrial_vehicles")
+    can_team = has_admin_access(u, "industrial_team")
+    can_finance = has_admin_access(u, "industrial_finance")
+    if not can_finance:
+        for row in trips_today:
+            row.pop("trip_amount", None)
+            row.pop("expected_collection", None)
     active = await db.trips.count_documents({"status": {"$in": ACTIVE_TRIP}})
     completed_today = await db.trips.count_documents({"status": "Completed", "start_date": t})
     veh_total = await db.vehicles.count_documents({"archived": {"$ne": True}})
     veh_on_trip = await db.vehicles.count_documents({"archived": {"$ne": True}, "status": "On Trip"})
     veh_avail = await db.vehicles.count_documents({"archived": {"$ne": True}, "status": "Available"})
-    fin = await finance_summary(u)
+    fin = await finance_summary(u) if can_finance else {}
     al = await alerts(u)
     dw = await L.deewanji_cash()
     team_rows = {x["_id"]: x for x in await db.team.find({"archived": {"$ne": True}}).to_list(200)}
-    coll_today = await db.receipts.find({"cancelled": False, "date": t}).to_list(500)
+    coll_today = await db.receipts.find({"cancelled": False, "date": t}).to_list(500) if can_finance else []
     dw_today = round(sum(r["amount"] for r in coll_today if r.get("collected_by_type") == "deewanji"), 2)
     return {
-        "trips": {"today": len(trips_today), "active": active, "completed_today": completed_today,
-                  "total": await db.trips.count_documents({})},
-        "vehicles": {"total": veh_total, "available": veh_avail, "on_trip": veh_on_trip,
-                     "maintenance": await db.vehicles.count_documents({"status": "Maintenance", "archived": {"$ne": True}})},
-        "people": {"drivers": await db.drivers.count_documents({"archived": {"$ne": True}}),
-                   "team": await db.team.count_documents({"archived": {"$ne": True}})},
+        "trips": {"today": len(trips_today) if can_trips else 0,
+                  "active": active if can_trips else 0,
+                  "completed_today": completed_today if can_trips else 0,
+                  "total": await db.trips.count_documents({}) if can_trips else 0},
+        "vehicles": {"total": veh_total if can_vehicles else 0,
+                     "available": veh_avail if can_vehicles else 0,
+                     "on_trip": veh_on_trip if can_vehicles else 0,
+                     "maintenance": await db.vehicles.count_documents({"status": "Maintenance", "archived": {"$ne": True}}) if can_vehicles else 0},
+        "people": {"drivers": await db.drivers.count_documents({"archived": {"$ne": True}}) if can_team else 0,
+                   "team": await db.team.count_documents({"archived": {"$ne": True}}) if can_team else 0},
         "money": fin,
-        "collections": {"today": round(sum(r["amount"] for r in coll_today), 2),
+        "collections": {"today": round(sum(r["amount"] for r in coll_today), 2) if can_finance else 0,
                         "deewanji_today": dw_today,
-                        "cash_with_deewanji": round(sum(dw.values()), 2),
+                        "cash_with_deewanji": round(sum(dw.values()), 2) if can_finance else 0,
                         "by_deewanji": [{"id": k, "name": team_rows.get(k, {}).get("name", "-"),
-                                         "amount": round(v, 2)} for k, v in dw.items() if v]},
+                                         "amount": round(v, 2)} for k, v in dw.items() if v] if can_finance else []},
         "alerts": {"vehicle_docs": len(al["vehicle_docs"]), "driver_licence": len(al["driver_licence"]),
                    "overdue": len(al["overdue"]), "pending_payments": len(al["pending_receivables"]),
                    "driver_advances": round(sum(x["amount"] for x in al["driver_advances"]), 2),
                    "employee_advances": round(sum(x["amount"] for x in al["employee_advances"]), 2)},
         "lists": {
-            "trips_today": trips_today[:8],
-            "recent_collections": sers(await db.receipts.find({"cancelled": False}).sort("created_at", -1).to_list(6)),
-            "recent_payments": sers(await db.payments.find({"cancelled": False}).sort("created_at", -1).to_list(6)),
+            "trips_today": trips_today[:8] if can_trips else [],
+            "recent_collections": sers(await db.receipts.find({"cancelled": False}).sort("created_at", -1).to_list(6)) if can_finance else [],
+            "recent_payments": sers(await db.payments.find({"cancelled": False}).sort("created_at", -1).to_list(6)) if can_finance else [],
             "recent_expenses": sers(await db.expenses.find({
                 "cancelled": False, "site_id": {"$exists": False},
-            }).sort("created_at", -1).to_list(6)),
-            "pending_receivables": al["pending_receivables"][:8],
+            }).sort("created_at", -1).to_list(6)) if can_finance else [],
+            "pending_receivables": al["pending_receivables"][:8] if can_finance else [],
         },
-        "pending_lrs": await db.lrs.count_documents({"cancelled": False, "payment_status": {"$in": ["Pending", "Partial"]}}),
-        "total_lrs": await db.lrs.count_documents({"cancelled": False}),
+        "pending_lrs": await db.lrs.count_documents({"cancelled": False, "payment_status": {"$in": ["Pending", "Partial"]}}) if can_lrs else 0,
+        "total_lrs": await db.lrs.count_documents({"cancelled": False}) if can_lrs else 0,
     }
 
 
@@ -2078,24 +2715,31 @@ async def search(q: str, u=Depends(current_user)):
         return []
     rx = {"$regex": q, "$options": "i"}
     out = []
-    for v in await db.vehicles.find({"vehicle_no": rx, "archived": {"$ne": True}}).limit(5).to_list(5):
-        out.append({"type": "Vehicle", "title": v["vehicle_no"],
-                    "subtitle": f"{v.get('vehicle_type','')} {v.get('status','')}",
-                    "link": f"/vehicles/{v['_id']}"})
-    for d in await db.drivers.find({"$or": [{"name": rx}, {"mobile": rx}], "archived": {"$ne": True}}).limit(5).to_list(5):
-        out.append({"type": "Driver", "title": d["name"], "subtitle": d.get("mobile", ""),
-                    "link": f"/drivers/{d['_id']}"})
-    for p in await db.parties.find({"$or": [{"name": rx}, {"mobile": rx}], "archived": {"$ne": True}}).limit(5).to_list(5):
-        out.append({"type": "Party", "title": p["name"], "subtitle": p.get("mobile", ""),
-                    "link": f"/parties/{p['_id']}"})
-    for t in await db.trips.find({"$or": [{"trip_no": rx}, {"vehicle_no": rx}]}).limit(5).to_list(5):
-        out.append({"type": "Trip", "title": t["trip_no"],
-                    "subtitle": f"{t['from_name']} > {t['to_name']} · {t['status']}",
-                    "link": f"/trips/{t['_id']}"})
-    for l in await db.lrs.find({"$or": [{"lr_no": rx}, {"sender.name": rx}, {"vehicle_no": rx}]}).limit(5).to_list(5):
-        out.append({"type": "LR", "title": l["lr_no"],
-                    "subtitle": f"{(l.get('sender') or {}).get('name','')} · Rs {l.get('freight',0):,.0f}",
-                    "link": f"/lrs/{l['_id']}"})
+    if has_admin_access(u, "industrial_vehicles"):
+        for v in await db.vehicles.find({"vehicle_no": rx, "archived": {"$ne": True}}).limit(5).to_list(5):
+            out.append({"type": "Vehicle", "title": v["vehicle_no"],
+                        "subtitle": f"{v.get('vehicle_type','')} {v.get('status','')}",
+                        "link": f"/vehicles/{v['_id']}"})
+    if has_admin_access(u, "industrial_team"):
+        for d in await db.drivers.find({"$or": [{"name": rx}, {"mobile": rx}], "archived": {"$ne": True}}).limit(5).to_list(5):
+            out.append({"type": "Driver", "title": d["name"], "subtitle": d.get("mobile", ""),
+                        "link": f"/drivers/{d['_id']}"})
+    if has_admin_access(u, "industrial_parties"):
+        for p in await db.parties.find({"$or": [{"name": rx}, {"mobile": rx}], "archived": {"$ne": True}}).limit(5).to_list(5):
+            out.append({"type": "Party", "title": p["name"], "subtitle": p.get("mobile", ""),
+                        "link": f"/parties/{p['_id']}"})
+    if has_admin_access(u, "industrial_trips"):
+        for t in await db.trips.find({"$or": [{"trip_no": rx}, {"vehicle_no": rx}]}).limit(5).to_list(5):
+            out.append({"type": "Trip", "title": t["trip_no"],
+                        "subtitle": f"{t['from_name']} > {t['to_name']} · {t['status']}",
+                        "link": f"/trips/{t['_id']}"})
+    if has_admin_access(u, "industrial_lrs"):
+        for l in await db.lrs.find({"$or": [{"lr_no": rx}, {"sender.name": rx}, {"vehicle_no": rx}]}).limit(5).to_list(5):
+            subtitle = (f"{(l.get('sender') or {}).get('name','')} · Rs {l.get('freight',0):,.0f}"
+                        if has_admin_access(u, "industrial_finance")
+                        else (l.get("sender") or {}).get("name", ""))
+            out.append({"type": "LR", "title": l["lr_no"], "subtitle": subtitle,
+                        "link": f"/lrs/{l['_id']}"})
     return out
 
 

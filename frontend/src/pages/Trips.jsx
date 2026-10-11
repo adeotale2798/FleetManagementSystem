@@ -7,15 +7,19 @@ import { Download, FileText, Filter, Plus, Truck } from "lucide-react";
 import { useFetch, useMaster, opts } from "../lib/hooks";
 import { money, money0, dmy } from "../lib/format";
 import { exportCSV, exportExcel, exportPDF } from "../lib/export";
+import { hasAdminAccess } from "../lib/adminAccess";
 import {
   Badge, Btn, Card, DataTable, EmptyState, ErrorState, Loader, PageHead, SearchBox, Select, Stat, Tabs,
 } from "../components/ui";
 
 const STATUS = ["New", "Assigned", "Started", "In Transit", "Delivered", "Completed", "Cancelled"];
 
-export default function Trips() {
+export default function Trips({ user }) {
   const [sp, setSp] = useSearchParams();
   const tab = sp.get("tab") || "trips";
+  const canTrips = hasAdminAccess(user, "industrial_trips");
+  const canLrs = hasAdminAccess(user, "industrial_lrs");
+  const canFinance = hasAdminAccess(user, "industrial_finance");
   const nav = useNavigate();
   const [showF, setShowF] = useState(false);
   const [f, setF] = useState({ q: "", status: sp.get("status") || "", vehicle_id: "", driver_id: "", route_id: "", mode: "", trip_type: "", frm: "", to: "" });
@@ -38,11 +42,12 @@ export default function Trips() {
     { key: "to_name", label: "To" },
     { key: "vehicle_no", label: "Vehicle" },
     { key: "driver_name", label: "Driver" },
-    { key: "trip_amount", label: "Amount", type: "money", right: true },
-    { key: "trip_cost", label: "Cost", type: "money", right: true },
-    { key: "profit", label: "Profit", right: true,
+    ...(canFinance ? [{ key: "trip_amount", label: "Amount", type: "money", right: true },
+      { key: "trip_cost", label: "Cost", type: "money", right: true },
+      { key: "profit", label: "Profit", right: true,
       render: (r) => <span className={`num font-semibold ${r.profit < 0 ? "text-red-600" : "text-brand-600"}`}>{money(r.profit)}</span> },
-    { key: "lr_count", label: "LR", right: true },
+    ] : []),
+    ...(canLrs ? [{ key: "lr_count", label: "LR", right: true }] : []),
     { key: "status", label: "Status", type: "badge" },
   ];
 
@@ -54,9 +59,11 @@ export default function Trips() {
     { key: "from_name", label: "From" },
     { key: "to_name", label: "To" },
     { key: "vehicle_no", label: "Vehicle" },
-    { key: "freight", label: "Freight", type: "money", right: true },
-    { key: "outstanding", label: "Pending", type: "money", right: true },
-    { key: "payment_status", label: "Status", type: "badge" },
+    ...(canFinance ? [
+      { key: "freight", label: "Freight", type: "money", right: true },
+      { key: "outstanding", label: "Pending", type: "money", right: true },
+      { key: "payment_status", label: "Status", type: "badge" },
+    ] : []),
   ];
 
   const rows = tab === "trips" ? trips.data : lrs.data;
@@ -78,15 +85,18 @@ export default function Trips() {
             </Btn>
             <Btn variant="s" icon={FileText} onClick={() => exportPDF(tab === "trips" ? "Trip Report" : "LR Report",
               tab === "trips" ? tripCols : lrCols, flat(rows), `${(rows || []).length} records`)}>PDF</Btn>
-            <Btn icon={Plus} data-testid="new-lr-btn" variant="s" onClick={() => nav("/lrs/new")}>New LR</Btn>
-            <Btn icon={Truck} data-testid="new-trip-btn" onClick={() => nav("/trips/new")}>New Trip</Btn>
+            {canLrs && <Btn icon={Plus} data-testid="new-lr-btn" variant="s" onClick={() => nav("/lrs/new")}>New LR</Btn>}
+            {canTrips && <Btn icon={Truck} data-testid="new-trip-btn" onClick={() => nav("/trips/new")}>New Trip</Btn>}
           </>
         } />
 
       <Tabs value={tab} onChange={setTab}
-        tabs={[{ value: "trips", label: "Trips" }, { value: "lrs", label: "Lorry Receipts" }]} />
+        tabs={[
+          ...(canTrips ? [{ value: "trips", label: "Trips" }] : []),
+          ...(canLrs ? [{ value: "lrs", label: "Lorry Receipts" }] : []),
+        ]} />
 
-      {tab === "lrs" && lrStats.data && <LRInsights s={lrStats.data} />}
+      {tab === "lrs" && canFinance && lrStats.data && <LRInsights s={lrStats.data} />}
 
       <Card className="mb-4 p-3.5">
         <div className="flex flex-wrap items-center gap-2">

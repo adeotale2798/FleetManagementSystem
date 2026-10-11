@@ -1,11 +1,13 @@
 import React, { lazy, Suspense, useEffect, useState } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "./lib/api";
 import { ToastHost, Loader, toast } from "./components/ui";
 import { startDataSync } from "./lib/realtime";
+import { firstAdminRoute, hasAdminAccess } from "./lib/adminAccess";
 import Layout from "./components/Layout";
 
 const Login = lazy(() => import("./pages/Login"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Trips = lazy(() => import("./pages/Trips"));
 const TripForm = lazy(() => import("./pages/TripForm"));
 const TripDetail = lazy(() => import("./pages/TripDetail"));
@@ -27,6 +29,44 @@ const PlatformSettings = lazy(() => import("./pages/Platform").then((module) => 
 const SiteConsole = lazy(() => import("./pages/SiteConsole"));
 const Booking = lazy(() => import("./pages/Booking"));
 
+function AdminAccessRoute({ user, accessKey, children }) {
+  return hasAdminAccess(user, accessKey)
+    ? children : <Navigate to={firstAdminRoute(user)} replace />;
+}
+
+function BookingAccessRoute({ user }) {
+  const location = useLocation();
+  const section = location.pathname.split("/").filter(Boolean).pop();
+  const accessKey = section === "finance" ? "booking_finance"
+    : section === "audit" ? "booking_audit"
+      : "booking";
+  return <AdminAccessRoute user={user} accessKey={accessKey}><Booking user={user} /></AdminAccessRoute>;
+}
+
+function IndustrialTripsAccessRoute({ user }) {
+  const location = useLocation();
+  const tab = new URLSearchParams(location.search).get("tab") || "trips";
+  const accessKey = tab === "lrs" ? "industrial_lrs" : "industrial_trips";
+  if (!hasAdminAccess(user, accessKey)) {
+    const alternateKey = tab === "lrs" ? "industrial_trips" : "industrial_lrs";
+    if (hasAdminAccess(user, alternateKey)) {
+      return <Navigate to={`/trips?tab=${alternateKey === "industrial_lrs" ? "lrs" : "trips"}`} replace />;
+    }
+  }
+  return <AdminAccessRoute user={user} accessKey={accessKey}><Trips user={user} /></AdminAccessRoute>;
+}
+
+function NoAdminSectionsEnabled() {
+  return (
+    <section className="mx-auto max-w-xl rounded-xl border border-line bg-white p-6 text-center">
+      <h1 className="font-head text-xl font-bold text-ink">No business sections enabled</h1>
+      <p className="mt-2 text-sm text-muted">
+        Ask your platform owner to grant access to the sections you need.
+      </p>
+    </section>
+  );
+}
+
 export default function App() {
   const [state, setState] = useState("checking");
   const [user, setUser] = useState(null);
@@ -38,14 +78,27 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!localStorage.getItem("fms_token")) return setState("out");
-    api.get("/me").then(applyMe).catch(() => setState("out"));
+    const supportToken = sessionStorage.getItem("fms_support_token");
+    if (!supportToken && !localStorage.getItem("fms_token")) return setState("out");
+    api.get("/me").then(applyMe).catch(() => {
+      if (!supportToken) return setState("out");
+      sessionStorage.removeItem("fms_support_token");
+      api.get("/me").then(applyMe).catch(() => setState("out"));
+    });
+    const onSessionChange = () => api.get("/me").then(applyMe).catch(() => setState("out"));
     const onBrand = () => api.get("/me").then(applyMe).catch(() => {});
+    window.addEventListener("fms:auth-changed", onSessionChange);
     window.addEventListener("fms:branding", onBrand);
-    return () => window.removeEventListener("fms:branding", onBrand);
+    return () => {
+      window.removeEventListener("fms:auth-changed", onSessionChange);
+      window.removeEventListener("fms:branding", onBrand);
+    };
   }, []);
 
-  const onLogin = () => { api.get("/me").then(applyMe).catch(() => setState("out")); };
+  const onLogin = () => {
+    sessionStorage.removeItem("fms_support_token");
+    api.get("/me").then(applyMe).catch(() => setState("out"));
+  };
 
   useEffect(() => {
     if (state !== "in" || !user) return undefined;
@@ -85,46 +138,62 @@ export default function App() {
               {user?.role === "superadmin" ? (
                 <>
                   <Route path="/platform" element={<Platform />} />
+                  <Route path="/platform/plans" element={<Platform initialView="plans" />} />
                   <Route path="/settings" element={<PlatformSettings />} />
                   <Route path="*" element={<Navigate to="/platform" replace />} />
                 </>
               ) : user?.role === "site_manager" ? (
                 <>
-                  <Route path="/" element={<Navigate to="/booking/dashboard" replace />} />
-                  <Route path="/booking" element={<Navigate to="/booking/dashboard" replace />} />
-                  <Route path="/booking/:section" element={<Booking user={user} />} />
-                  <Route path="/sites" element={<Navigate to="/booking/dashboard" replace />} />
-                  <Route path="/sites/:siteId/trips/:tripId/*" element={<Navigate to="/booking/receipts" replace />} />
-                  <Route path="/booking-setup" element={<Navigate to="/booking/dashboard" replace />} />
-                  <Route path="*" element={<Navigate to="/booking/dashboard" replace />} />
+                  <Route path="/" element={<Navigate to={
+                    hasAdminAccess(user, "booking") ? "/booking/dashboard" : "/access-required"
+                  } replace />} />
+                  <Route path="/access-required" element={<NoAdminSectionsEnabled />} />
+                  <Route path="/booking" element={<Navigate to={
+                    hasAdminAccess(user, "booking") ? "/booking/dashboard" : "/access-required"
+                  } replace />} />
+                  <Route path="/booking/:section" element={hasAdminAccess(user, "booking")
+                    ? <Booking user={user} /> : <NoAdminSectionsEnabled />} />
+                  <Route path="/sites" element={<Navigate to={
+                    hasAdminAccess(user, "booking") ? "/booking/dashboard" : "/access-required"
+                  } replace />} />
+                  <Route path="/sites/:siteId/trips/:tripId/*" element={<Navigate to={
+                    hasAdminAccess(user, "booking") ? "/booking/receipts" : "/access-required"
+                  } replace />} />
+                  <Route path="/booking-setup" element={<Navigate to={
+                    hasAdminAccess(user, "booking") ? "/booking/dashboard" : "/access-required"
+                  } replace />} />
+                  <Route path="*" element={<Navigate to={
+                    hasAdminAccess(user, "booking") ? "/booking/dashboard" : "/access-required"
+                  } replace />} />
                 </>
               ) : (
                 <>
-            <Route path="/" element={<Navigate to="/booking/dashboard" replace />} />
+            <Route path="/" element={<Navigate to={firstAdminRoute(user)} replace />} />
+            <Route path="/access-required" element={<NoAdminSectionsEnabled />} />
             <Route path="/booking" element={<Navigate to="/booking/dashboard" replace />} />
-            <Route path="/booking/:section" element={<Booking user={user} />} />
+            <Route path="/booking/:section" element={<BookingAccessRoute user={user} />} />
             <Route path="/sites" element={<Navigate to="/booking/dashboard" replace />} />
             <Route path="/sites/:siteId/trips/:tripId/*" element={<Navigate to="/booking/receipts" replace />} />
-            <Route path="/booking-setup" element={<SiteConsole user={user} adminOnly />} />
+            <Route path="/booking-setup" element={<AdminAccessRoute user={user} accessKey="booking_settings"><SiteConsole user={user} adminOnly /></AdminAccessRoute>} />
             <Route path="/booking-finance" element={<Navigate to="/booking/finance" replace />} />
             <Route path="/booking-reports" element={<Navigate to="/booking/ledger" replace />} />
-            <Route path="/dashboard" element={<Navigate to="/booking/dashboard" replace />} />
-            <Route path="/trips" element={<Trips />} />
-            <Route path="/trips/new" element={<TripForm />} />
-            <Route path="/trips/:id" element={<TripDetail />} />
-            <Route path="/lrs/new" element={<LRForm />} />
-            <Route path="/lrs/:id" element={<LRView />} />
-            <Route path="/vehicles" element={<Vehicles />} />
-            <Route path="/vehicles/:id" element={<VehicleDetail />} />
-            <Route path="/parties" element={<Parties />} />
-            <Route path="/parties/:id" element={<PartyDetail />} />
-            <Route path="/team" element={<Team />} />
-            <Route path="/drivers/:id" element={<PersonDetail kind="driver" />} />
-            <Route path="/team/:id" element={<PersonDetail kind="employee" />} />
-            <Route path="/finance" element={<Finance />} />
-            <Route path="/reports" element={<Reports />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/login" element={<Navigate to="/" replace />} />
+            <Route path="/dashboard" element={<AdminAccessRoute user={user} accessKey="industrial_dashboard"><Dashboard user={user} /></AdminAccessRoute>} />
+            <Route path="/trips" element={<IndustrialTripsAccessRoute user={user} />} />
+            <Route path="/trips/new" element={<AdminAccessRoute user={user} accessKey="industrial_trips"><TripForm user={user} /></AdminAccessRoute>} />
+            <Route path="/trips/:id" element={<AdminAccessRoute user={user} accessKey="industrial_trips"><TripDetail user={user} /></AdminAccessRoute>} />
+            <Route path="/lrs/new" element={<AdminAccessRoute user={user} accessKey="industrial_lrs"><LRForm /></AdminAccessRoute>} />
+            <Route path="/lrs/:id" element={<AdminAccessRoute user={user} accessKey="industrial_lrs"><LRView user={user} /></AdminAccessRoute>} />
+            <Route path="/vehicles" element={<AdminAccessRoute user={user} accessKey="industrial_vehicles"><Vehicles /></AdminAccessRoute>} />
+            <Route path="/vehicles/:id" element={<AdminAccessRoute user={user} accessKey="industrial_vehicles"><VehicleDetail /></AdminAccessRoute>} />
+            <Route path="/parties" element={<AdminAccessRoute user={user} accessKey="industrial_parties"><Parties /></AdminAccessRoute>} />
+            <Route path="/parties/:id" element={<AdminAccessRoute user={user} accessKey="industrial_parties"><PartyDetail /></AdminAccessRoute>} />
+            <Route path="/team" element={<AdminAccessRoute user={user} accessKey="industrial_team"><Team /></AdminAccessRoute>} />
+            <Route path="/drivers/:id" element={<AdminAccessRoute user={user} accessKey="industrial_team"><PersonDetail kind="driver" /></AdminAccessRoute>} />
+            <Route path="/team/:id" element={<AdminAccessRoute user={user} accessKey="industrial_team"><PersonDetail kind="employee" /></AdminAccessRoute>} />
+            <Route path="/finance" element={<AdminAccessRoute user={user} accessKey="industrial_finance"><Finance /></AdminAccessRoute>} />
+            <Route path="/reports" element={<AdminAccessRoute user={user} accessKey="industrial_reports"><Reports /></AdminAccessRoute>} />
+            <Route path="/settings" element={<AdminAccessRoute user={user} accessKey="industrial_settings"><Settings /></AdminAccessRoute>} />
+            <Route path="/login" element={<Navigate to={firstAdminRoute(user)} replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
                 </>
               )}

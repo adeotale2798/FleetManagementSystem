@@ -4,10 +4,11 @@ import {
   BarChart3, Banknote, FileText, Fuel, Gauge, LogOut, Menu, Plus, Receipt,
   Search, Settings as Cog, ShieldCheck, Truck, User, Users, UsersRound, Wallet, X, ArrowRight, Building2,
 } from "lucide-react";
-import { api } from "../lib/api";
+import { api, errMsg } from "../lib/api";
 import { dmyDateTime } from "../lib/format";
+import { hasAdminAccess } from "../lib/adminAccess";
 import EntryModal from "./QuickForms";
-import { Badge } from "./ui";
+import { Badge, toast } from "./ui";
 
 const APP_LOGO = "/app-icon.png";
 
@@ -36,21 +37,26 @@ function BrandLogo({ src, name, className }) {
 }
 
 const NAV = [
-  { to: "/trips?tab=trips", label: "Industrial Trips", icon: Truck, key: "trips",
+  { to: "/dashboard", label: "Industrial Dashboard", icon: Building2, accessKey: "industrial_dashboard",
+    activeWhen: (location) => location.pathname === "/dashboard" },
+  { to: "/trips?tab=trips", label: "Industrial Trips", icon: Truck, key: "trips", accessKey: "industrial_trips",
     activeWhen: (location) => location.pathname === "/trips" && new URLSearchParams(location.search).get("tab") !== "lrs" },
-  { to: "/trips?tab=lrs", label: "Industrial LRs", icon: FileText, key: "trips",
+  { to: "/trips?tab=lrs", label: "Industrial LRs", icon: FileText, key: "trips", accessKey: "industrial_lrs",
     activeWhen: (location) => location.pathname === "/trips" && new URLSearchParams(location.search).get("tab") === "lrs" },
-  { to: "/vehicles", label: "Vehicles", icon: Gauge, key: "vehicles" },
-  { to: "/parties", label: "Parties", icon: Users, key: "parties" },
-  { to: "/team", label: "Team", icon: UsersRound, key: "team" },
-  { to: "/finance", label: "Industrial Finance", icon: Wallet, key: "finance" },
-  { to: "/reports", label: "Industrial Reports", icon: BarChart3, key: "reports" },
-  { to: "/settings", label: "Office Settings", icon: Cog, key: "settings" },
+  { to: "/vehicles", label: "Vehicles", icon: Gauge, key: "vehicles", accessKey: "industrial_vehicles" },
+  { to: "/parties", label: "Parties", icon: Users, key: "parties", accessKey: "industrial_parties" },
+  { to: "/team", label: "Team", icon: UsersRound, key: "team", accessKey: "industrial_team" },
+  { to: "/finance", label: "Industrial Finance", icon: Wallet, key: "finance", accessKey: "industrial_finance" },
+  { to: "/reports", label: "Industrial Reports", icon: BarChart3, key: "reports", accessKey: "industrial_reports" },
+  { to: "/settings", label: "Office Settings", icon: Cog, key: "settings", accessKey: "industrial_settings" },
 ];
 
 const PLATFORM_NAV = [
-  { to: "/platform", label: "Licences", icon: ShieldCheck },
-  { to: "/settings", label: "Console", icon: Cog },
+  { to: "/platform", label: "Clients", icon: Building2,
+    activeWhen: (location) => location.pathname === "/platform" },
+  { to: "/platform/plans", label: "Plans & pricing", icon: ShieldCheck,
+    activeWhen: (location) => location.pathname === "/platform/plans" },
+  { to: "/settings", label: "Platform settings", icon: Cog },
 ];
 
 const SITE_NAV = { to: "/booking/dashboard", label: "Dashboard", icon: Building2 };
@@ -59,9 +65,9 @@ const BOOKING_NAV = [
   { to: "/booking/ledger", label: "Ledger", icon: Banknote },
 ];
 const OWNER_BOOKING_NAV = [
-  { to: "/booking-setup", label: "Booking settings", icon: Cog },
-  { to: "/booking/finance", label: "Booking Finance", icon: Wallet },
-  { to: "/booking/audit", label: "Booking Audit", icon: ShieldCheck },
+  { to: "/booking-setup", label: "Booking settings", icon: Cog, accessKey: "booking_settings" },
+  { to: "/booking/finance", label: "Booking Finance", icon: Wallet, accessKey: "booking_finance" },
+  { to: "/booking/audit", label: "Booking Audit", icon: ShieldCheck, accessKey: "booking_audit" },
 ];
 const BOOKING_HEADER_NAV = [
   SITE_NAV,
@@ -156,7 +162,23 @@ export default function Layout({ user, children, syncStatus = "checking" }) {
     };
   }, [q]);
 
-  const logout = () => { localStorage.removeItem("fms_token"); window.location.href = "/login"; };
+  const exitSupport = async () => {
+    try {
+      await api.post("/platform/support-session/end");
+      sessionStorage.removeItem("fms_support_token");
+      window.dispatchEvent(new Event("fms:auth-changed"));
+      nav("/platform");
+    } catch (error) {
+      toast(errMsg(error), "err");
+    }
+  };
+
+  const logout = () => {
+    if (user?.platform_support) return exitSupport();
+    sessionStorage.removeItem("fms_support_token");
+    localStorage.removeItem("fms_token");
+    window.location.href = "/login";
+  };
 
   const quick = (kind) => {
     setSheet(false);
@@ -172,18 +194,42 @@ export default function Layout({ user, children, syncStatus = "checking" }) {
     || loc.pathname === "/sites" || loc.pathname.startsWith("/sites/")
     || loc.pathname === "/booking-finance" || loc.pathname === "/booking-reports"
     || loc.pathname === "/booking-setup";
-  const showIndustrialTools = user?.role === "owner" && !isSiteBookingRoute;
+  const allowedIndustrialNav = NAV.filter((item) =>
+    hasAdminAccess(user, item.accessKey) && (!item.key || user?.features?.[item.key] !== false));
+  const allowedOwnerBookingNav = OWNER_BOOKING_NAV.filter((item) => hasAdminAccess(user, item.accessKey));
+  const showIndustrialTools = user?.role === "owner" && !isSiteBookingRoute && allowedIndustrialNav.length > 0;
+  const quickActions = QUICK.filter(({ kind }) => {
+    if (kind === "trip") return hasAdminAccess(user, "industrial_trips");
+    if (kind === "lr") return hasAdminAccess(user, "industrial_lrs");
+    return hasAdminAccess(user, "industrial_finance");
+  });
+  const showQuickActions = showIndustrialTools && quickActions.length > 0;
   const navItems = user?.role === "superadmin" ? PLATFORM_NAV
-    : user?.role === "site_manager" ? [SITE_NAV, ...BOOKING_NAV]
-      : [SITE_NAV, ...BOOKING_NAV, ...OWNER_BOOKING_NAV, ...NAV.filter((n) => !n.key || user?.features?.[n.key] !== false)];
+    : user?.role === "site_manager"
+      ? (hasAdminAccess(user, "booking") ? [SITE_NAV, ...BOOKING_NAV] : [])
+      : [
+        ...(hasAdminAccess(user, "booking") ? [SITE_NAV, ...BOOKING_NAV, ...allowedOwnerBookingNav] : []),
+        ...allowedIndustrialNav,
+      ];
   const mobileNav = user?.role === "superadmin" ? PLATFORM_NAV
-    : user?.role === "site_manager" ? [SITE_NAV, ...BOOKING_NAV]
+    : user?.role === "site_manager"
+      ? (hasAdminAccess(user, "booking") ? [SITE_NAV, ...BOOKING_NAV] : [])
       : showIndustrialTools
-        ? [NAV[0], NAV[2], NAV[5], NAV[6]].filter((item) => user?.features?.[item.key] !== false)
-        : [SITE_NAV, ...BOOKING_NAV, OWNER_BOOKING_NAV[1]];
+        ? [NAV[0], NAV[1], NAV[3], NAV[6], NAV[7]].filter((item) =>
+          hasAdminAccess(user, item.accessKey) && (!item.key || user?.features?.[item.key] !== false))
+        : [
+          ...(hasAdminAccess(user, "booking") ? [SITE_NAV, ...BOOKING_NAV] : []),
+          ...allowedOwnerBookingNav,
+        ].slice(0, 4);
   const navGroups = user?.role === "owner" ? [
-    { label: "Site booking", items: [SITE_NAV, ...BOOKING_NAV, ...OWNER_BOOKING_NAV] },
-    { label: "Industrial operations", items: NAV.filter((n) => !n.key || user?.features?.[n.key] !== false) },
+    ...(hasAdminAccess(user, "booking") || allowedOwnerBookingNav.length ? [{
+      label: "Site booking",
+      items: [
+        ...(hasAdminAccess(user, "booking") ? [SITE_NAV, ...BOOKING_NAV] : []),
+        ...allowedOwnerBookingNav,
+      ],
+    }] : []),
+    ...(allowedIndustrialNav.length ? [{ label: "Industrial operations", items: allowedIndustrialNav }] : []),
   ] : [{ label: user?.role === "superadmin" ? "Administration" : "Workspace", items: navItems }];
 
   const Side = (
@@ -194,7 +240,9 @@ export default function Layout({ user, children, syncStatus = "checking" }) {
         <div className="min-w-0">
           <p className="truncate font-head text-[15.5px] font-bold leading-none text-white">{bizName}</p>
           <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-[.14em] text-white/45">
-            {user?.role === "superadmin" ? "Platform control" : user?.role === "site_manager" ? "Site operations" : "Fleet operations"}
+            {user?.platform_support ? "Platform support"
+              : user?.role === "superadmin" ? "Platform control"
+                : user?.role === "site_manager" ? "Site operations" : "Fleet operations"}
           </p>
         </div>
       </div>
@@ -291,6 +339,19 @@ export default function Layout({ user, children, syncStatus = "checking" }) {
               )}
             </div>
             )}
+            {user?.platform_support && (
+              <div className="flex min-w-0 items-center justify-end gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-amber-950 sm:flex-initial sm:px-3">
+                <span className="max-w-48 truncate text-[10px] font-semibold sm:text-xs">
+                  <span className="sm:hidden">Support mode</span>
+                  <span className="hidden sm:inline">Support mode · {user.tenant_name}</span>
+                </span>
+                <button type="button" data-testid="exit-platform-support"
+                  onClick={exitSupport}
+                  className="shrink-0 rounded-md px-2 py-1 text-xs font-bold hover:bg-amber-100">
+                  Exit client
+                </button>
+              </div>
+            )}
             {user?.role === "superadmin" && <div className="flex-1" />}
             <span role="status" aria-live="polite" data-testid="sync-status"
               className={`inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-1 text-[10px] font-semibold sm:gap-1.5 sm:px-2 sm:text-xs ${
@@ -313,7 +374,7 @@ export default function Layout({ user, children, syncStatus = "checking" }) {
                   : syncStatus === "reconnecting" ? "Reconnecting…"
                     : "Checking connection…"}</span>
             </span>
-            {showIndustrialTools && (
+              {showQuickActions && (
               <button onClick={() => setSheet(true)} data-testid="quick-action-btn"
                 className="btn-p hidden py-2 md:inline-flex"><Plus size={17} /> New Entry</button>
             )}
@@ -321,7 +382,11 @@ export default function Layout({ user, children, syncStatus = "checking" }) {
           </div>
           {isSiteBookingRoute && user?.role !== "superadmin" && <nav aria-label="Booking sections"
             className="flex gap-1 overflow-x-auto border-t border-line px-3 py-1.5 md:justify-end md:px-7">
-            {(user?.role === "owner" ? BOOKING_HEADER_NAV : [SITE_NAV, ...BOOKING_NAV]).map((item) => {
+            {(user?.role === "owner"
+              ? BOOKING_HEADER_NAV.filter((item) => item === SITE_NAV || item === BOOKING_NAV[0] || item === BOOKING_NAV[1]
+                ? hasAdminAccess(user, "booking")
+                : hasAdminAccess(user, item.accessKey))
+              : [SITE_NAV, ...BOOKING_NAV]).map((item) => {
               const active = navIsActive(item, loc);
               return <Link key={item.to} to={item.to}
                 aria-current={active ? "page" : undefined}
@@ -341,11 +406,13 @@ export default function Layout({ user, children, syncStatus = "checking" }) {
       {/* mobile bottom bar */}
       <nav aria-label="Primary mobile navigation"
         className="app-header fixed bottom-0 left-0 right-0 z-30 border-t border-line pb-[env(safe-area-inset-bottom)] md:hidden">
-        <div className={`grid ${user?.role === "superadmin" ? "grid-cols-2"
-          : user?.role === "site_manager" ? "grid-cols-3"
-            : showIndustrialTools ? "grid-cols-5" : "grid-cols-4"}`}>
+        <div className="grid" style={{ gridTemplateColumns: `repeat(${
+          user?.role === "superadmin" ? 2
+            : user?.role === "site_manager" ? 3
+              : mobileNav.length + (showQuickActions ? 1 : 0)
+        }, minmax(0, 1fr))` }}>
           {user?.role === "superadmin" || user?.role === "site_manager" ? mobileNav.map((n) => <BottomLink key={n.to} n={n} />) : (
-            showIndustrialTools ? <>
+            showQuickActions ? <>
               {mobileNav.slice(0, 2).map((n) => <BottomLink key={n.to} n={n} />)}
               <button onClick={() => setSheet(true)} data-testid="mobile-quick-btn" className="flex flex-col items-center py-2">
                 <span className="grid h-11 w-11 -mt-4 place-items-center rounded-full bg-brand-500 text-white shadow-lg"><Plus size={22} /></span>
@@ -366,7 +433,7 @@ export default function Layout({ user, children, syncStatus = "checking" }) {
               <button onClick={() => setSheet(false)} className="rounded-lg p-1.5 text-muted hover:bg-canvas"><X size={19} /></button>
             </div>
             <div className="grid grid-cols-3 gap-2.5">
-              {QUICK.map((a) => (
+              {quickActions.map((a) => (
                 <button key={a.kind} onClick={() => quick(a.kind)} data-testid={`quick-${a.kind}`}
                   className="flex flex-col items-center gap-2 rounded-xl border border-line p-3.5 text-center transition-colors hover:border-brand-400 hover:bg-brand-50">
                   <a.icon size={20} className="text-brand-500" />
@@ -374,10 +441,10 @@ export default function Layout({ user, children, syncStatus = "checking" }) {
                 </button>
               ))}
             </div>
-            <Link to="/finance" onClick={() => setSheet(false)}
+            {hasAdminAccess(user, "industrial_finance") && <Link to="/finance" onClick={() => setSheet(false)}
               className="mt-4 flex items-center justify-between rounded-xl bg-canvas px-4 py-3 text-[14px] font-semibold text-ink">
               Open Industrial Finance <ArrowRight size={17} />
-            </Link>
+            </Link>}
           </div>
         </div>
       )}

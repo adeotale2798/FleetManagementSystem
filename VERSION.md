@@ -21,9 +21,117 @@ New features and architecture changes also require updates to [APP_SUMMARY.md](A
 
 ## Current version
 
-**v1.18.1** — 29 September 2026
+**v1.29.0** — 10 October 2026
 
 ## Changelog
+
+### v1.29.0 — 10 October 2026
+
+- **Renewal queue:** Added a dedicated client filter for licences expiring within 30 days or already expired, including suspended licences. Each row offers a direct action to open that customer's renewal/subscription editor.
+- **Readable customer history:** Subscription and per-user access events now show added/removed sections in clear labels and report how many admins actually had grants reduced.
+- **Verification:** 41 focused backend tests and 33 focused frontend tests pass; the production build compiles and `git diff --check` passes.
+
+### v1.28.0 — 10 October 2026
+
+- **Faster access management:** Customer access opens on an active business login when available. Per-user summaries count only permissions allowed by both current licence features and the subscription. Subscription and admin-grant saves update the customer workspace from their API response instead of waiting for a full all-customer stats reload.
+- **Clearer platform activity:** Plan-template history entries now appear under Platform rather than Deleted business.
+- **Reliable plan removal:** Fixed plan deletion to retain the loaded plan name for its audit event, avoiding a server error after a successful delete.
+- **Verification:** 40 focused backend tests and 65 focused frontend tests pass; the production build compiles and `git diff --check` passes.
+
+### v1.27.1 — 10 October 2026
+
+- **Custom subscription entitlements:** Switching a customer to Custom now starts with every section disabled. Added a clear-all action for existing Custom subscriptions and a warning when no sections are included.
+- **Access clarity:** The user-access editor now labels each module count as enabled versus included in the subscription, and refreshes customer access data before closing a saved subscription.
+- **Verification:** 29 focused subscription/access UI tests pass, the production frontend build compiles, and `git diff --check` passes.
+
+### v1.27.0 — 10 October 2026
+
+- **Full customer support mode:** Platform owners can start a two-hour, revocable support session from a selected customer workspace and use that customer's existing app to view and edit Booking and Industrial data, including clients whose licence is suspended or whose subscription does not include a section. This support override does not change the customer's saved plan or admin grants.
+- **Safer support boundary:** The support token is bound to the authenticated platform owner and one tenant, kept only in the current browser tab, checked against an active server-side session on every request, and cannot access platform-administration routes. Exit revokes the session and restores the platform login.
+- **Auditing and discoverability:** Every customer workspace now exposes Booking setup and a clear Open client app action. Support session start/end and successful support-mode writes are added to customer change history; actions continue to use tenant-scoped business operations.
+- **Platform dashboard speed:** Independent per-client summary queries now run concurrently with a fixed concurrency cap; the existing tenant/stat fields and normal tenant authorization remain unchanged.
+- **Compatibility:** Customer logins, subscription grants, tenant data, and business workflows are unchanged outside platform support mode. Receipt-logo previews now resolve through the configured backend asset URL.
+- **Verification:** 114 focused backend tests and 56 focused frontend tests pass; the production frontend build and `git diff --check` pass. The combined frontend run exposed and fixed a support-banner placement bug on Booking routes.
+
+### v1.26.0 — 10 October 2026
+
+- **Platform-managed Booking setup:** When no active customer owner has effective Booking Settings access, the platform owner can configure the customer's business-wide receipt visibility, site details/status, receipt format and branding, receipt-name suggestions, and reusable receipt categories.
+- **Site-manager support:** Platform owners can assign and manage tenant-scoped site-manager logins, site-specific permissions, and password resets. Newly generated temporary passwords appear once in the support workspace; no fee tracking or billing was introduced.
+- **Access and isolation:** The Booking setup workspace is hidden when an active customer owner can manage Booking Settings. Every support API requires a platform superadmin, rechecks the grant/subscription gate, sets the requested tenant context, and delegates to established site operations and audit behavior.
+- **Verification:** Platform UI tests, site operations and platform access tests, frontend production build, Python syntax checks, and `git diff --check` passed.
+
+### v1.25.1 — 10 October 2026
+
+- **Subscription editor visibility:** Rendered modals in a document-level portal so the animated application content cannot clip the overlay or dialog. Constrained dialog height to the visible viewport and made its content area reliably scroll while keeping title and actions visible.
+- **Clearer subscription editor:** Widened the customer subscription editor and grouped plan/renewal details separately from included sections; clarified the save action and payment/reference-price explanation.
+- **Accessibility:** Added dialog semantics, an accessible dialog name, and a labeled close button.
+- **Verification:** Focused platform and shared modal UI tests, production build, and `git diff --check` passed.
+
+### v1.25.0 — 10 October 2026
+
+- **Attention-first platform home:** Platform client management now opens on Needs attention, with one-click customer rows and recommended actions for suspended/expiring customers, missing plans, or missing active admins. All customers remains one tap away.
+- **Clearer licence state:** Customer workspaces show an Active → Expiring soon → Expired lifecycle, with suspended access called out separately. Mobile rows prioritize customer identity, status, reason and next action.
+- **Access profile previews:** Booking operator and Finance only profiles now explain the sections they grant before applying; subscription-excluded access remains disabled and reported before save.
+- **Compatibility:** No billing behavior, backend contracts, tenant workflows, or saved grant formats changed.
+- **Verification:** Focused platform UI tests, production build, and `git diff --check` passed.
+
+### v1.24.0 — 10 October 2026
+
+- **Needs attention:** Added a customer view that brings together suspended or expiring/expired licences, customers without a saved plan, and customers without an active admin. Each row opens the same customer workspace.
+- **Safer licence management:** Added a quick renewal action that opens the existing subscription editor so the owner chooses the new expiry date. Suspending a customer now requires confirmation; activation remains immediate.
+- **Reusable access profiles:** Added Booking operator and Finance only starting profiles. Requests are clamped to the customer's subscription/licence and any requested sections excluded by that plan are explicitly listed; grants still require the existing Save action.
+- **Local setup guidance:** Clarified that the frontend and API run in separate terminals, documented Windows PowerShell and macOS/Linux backend commands, and identified the example environment files and frontend API URL.
+- **Compatibility:** Billing remains manual; no payment, invoice, or automated renewal lifecycle was introduced. No business-app workflows or data contracts changed.
+- **Verification:** Focused platform UI tests, production build, and `git diff --check` passed.
+
+### v1.23.0 — 10 October 2026
+
+- **Simpler platform client directory:** Replaced the dense client cards and secondary activity chart with a searchable, status-filtered customer list. Each row opens that customer's management workspace; plan, admin count, expiry, and licence state are scannable at a glance.
+- **Cleaner access editing:** Added an “All included access” starting preset that respects the client's current plan and features. Permission groups collapse into concise summaries until needed, while individual grants and explicit saving remain unchanged.
+- **Responsive presentation:** Added a focused platform-console visual treatment with mobile-aware search, status chips, client rows, and access groups. No APIs, tenant business workflows, subscription rules, or stored data formats changed.
+- **Verification:** Focused platform UI tests, production build, and `git diff --check` passed.
+
+### v1.22.0 — 10 October 2026
+
+- **Platform workspace redesign:** Separated client management, Plans & pricing, and platform settings into clear destinations. Opening a customer now provides Overview, Subscription, Users & access, and Change history tabs; one selected admin is edited at a time.
+- **Simplified customer workflow:** Customer overview brings expiry, plan, active admins, activity, subscription entitlements, suspend/reactivate, password reset, and access actions together. Subscription and user access are displayed as included-vs-enabled steps.
+- **Auditable administration:** Added append-only platform events for customer licence creation, subscription changes, status changes, plan template changes, admin grant changes, and owner password resets. Customer workspaces show that customer’s history; platform settings show recent global activity and operating rules.
+- **Compatibility:** No tenant operational screens, business workflows, payment behavior, or expiry lifecycle changed. Existing plan snapshots and access enforcement remain in force.
+- **Verification:** Focused platform UI and navigation tests, backend platform-access tests, Python syntax validation, production build and `git diff --check` passed.
+
+### v1.21.0 — 10 October 2026
+
+- **Subscription plan catalogue:** Added editable Booking Essentials, Booking Complete, Industrial Modules, and Full Operations starter plans. Platform owners can set included sections and optional INR monthly/annual reference prices; the console does not collect payments.
+- **Customer licence snapshots:** New and existing customer licences can be assigned a plan and then customised independently. The saved entitlements, reference prices, and expiry belong to that customer; later plan-template edits do not change existing licences.
+- **Enforced subscription caps:** Each admin’s personal access grants are now bounded by the customer’s subscription in frontend navigation/route guards and backend authorization. Booking site managers are denied Booking APIs when Booking is not in their customer’s plan. Reducing a customer’s subscription clamps existing admin grants.
+- **Compatibility and lifecycle:** Existing licences without a subscription snapshot keep their previous behavior until assigned a plan. Active/Suspended status and manually managed expiry remain unchanged; no payment integration or operational feature changes were added.
+- **Verification:** Platform/access UI tests and backend platform-access tests passed; syntax validation, production build, and `git diff --check` passed.
+
+### v1.20.0 — 10 October 2026
+
+- **Platform client directory:** Replaced the duplicate licence table workflow with a searchable and status-filtered client directory. Each client card shows licence state/expiry, plan, admin count, activity, and direct management actions.
+- **Per-client access workspace:** Selecting a client loads only its admin logins and licence details. Admin permissions remain grouped into Booking operations, Booking owner sections, and individually selectable Industrial modules; licence-capped modules are visibly disabled.
+- **Access suggestions:** Added Full Booking, Industrial Trips only, and Clear all presets, plus an explicit unsaved/saved state and a confirmation before switching away from an edited access draft. Presets remain editable and do not bypass licence limits.
+- **Verification:** Focused platform-directory, admin-access preset and persistence UI tests, production build and `git diff --check` passed.
+
+### v1.19.0 — 09 October 2026
+
+- **Platform admin access:** Platform owners can select each business owner login and assign Booking operations as one grant, Booking Finance/Audit/Settings separately, and each Industrial module individually. The platform shows total and active admin counts.
+- **Enforcement and defaults:** Grants are checked by frontend navigation and route guards and by backend owner API authorization. Industrial grants cannot exceed tenant licence features; new business admins start with no grants, while pre-existing accounts without a saved grant record retain legacy access until configured. Unknown owner API routes fail closed.
+- **Data boundaries:** Search, dashboard summaries and trip details now omit module data that the admin has not been granted, in addition to direct route/API denial. Industrial trip amounts require Finance access.
+- **Compatibility:** No existing tenant data is migrated; the grant map is stored additively on platform user records. Admins with no enabled sections receive a clear access-required screen instead of a redirect loop.
+- **Verification:** Backend platform-access and authorization tests passed (32). Focused frontend coverage passed (4 suites, 47 tests) across grant helpers, routes, navigation and Booking regressions. The production build and `git diff --check` passed. No live MongoDB integration test was run.
+
+### v1.18.3 — 09 October 2026
+
+- **Compact phone controls:** Receipt Save, Print and Cancel actions now fit on one mobile toolbar row with concise labels and icons, while retaining full accessible labels. Controls stay at least 44px tall and preserve save-before-print behavior.
+- **Verification:** Focused receipt tests passed (2 suites, 39 tests). Browser measurements at 320, 360, 390 and 430px confirmed all three actions fit on one row, retain descriptive accessible names, and have no label or page overflow; desktop restores full labels. The production build and `git diff --check` passed. The app backend is unavailable, so authenticated receipt saving/printing could not be exercised in-browser.
+
+### v1.18.2 — 09 October 2026
+
+- **Phone receipt workflow:** Save and a compactly labeled Print action fit side by side as phone-sized touch targets; Cancel spans the full action bar. Print retains its explanatory accessible name and save-before-print behavior.
+- **Print sizing:** Removed a narrow-screen flex-basis override that incorrectly stretched receipts along their vertical layout axis, preserving the configured standard landscape and thermal-roll print sizes on phones.
+- **Verification:** Focused receipt tests passed (2 suites, 39 tests). Browser CSS checks at 320px and 390px confirmed the two primary buttons fit side by side, Cancel spans the bar, and all buttons are at least 48px tall; desktop restores the full Print label. The production build and `git diff --check` passed. The real receipt page could not be opened because the local backend was unavailable.
 
 ### v1.18.1 — 29 September 2026
 

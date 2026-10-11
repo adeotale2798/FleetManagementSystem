@@ -175,10 +175,15 @@ describe("simple booking workflow", () => {
     });
     expect(container.textContent).toContain("New receipt");
     expect(container.querySelector(".receipt-form-title").textContent).toContain("New receipt");
-    expect(Array.from(container.querySelector("#receipt-entry-form .receipt-form-actions").children,
-      (button) => button.textContent.trim())).toEqual([
+    const receiptActions = container.querySelector("#receipt-entry-form .receipt-form-actions");
+    expect(Array.from(receiptActions.children,
+      (button) => button.getAttribute("aria-label"))).toEqual([
       "Save receipt", "Print paper (saves receipt first)", "Cancel receipt",
     ]);
+    expect(Array.from(receiptActions.querySelectorAll(".receipt-action-label-mobile"),
+      (label) => label.textContent)).toEqual(["Save", "Print", "Cancel"]);
+    const printButton = container.querySelector(".receipt-print-action");
+    expect(printButton.getAttribute("aria-label")).toBe("Print paper (saves receipt first)");
     expect(container.querySelector(".receipt-form-heading-line").textContent).toContain(trip.trip_ref);
     expect(container.querySelector(".receipt-form-heading-line").nextElementSibling.textContent)
       .toBe("29-09-2026");

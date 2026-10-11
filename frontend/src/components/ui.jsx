@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft, Check, ChevronDown, Inbox, Loader2, Search, X, AlertTriangle,
@@ -223,26 +224,26 @@ export function Modal({ open, onClose, title, subtitle, children, footer, wide }
     return () => { document.removeEventListener("keydown", h); document.body.style.overflow = ""; };
   }, [open, onClose]);
   if (!open) return null;
-  return (
+  return createPortal((
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/50 p-0 backdrop-blur-sm fadein md:items-center md:p-6"
-      onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div data-testid="modal"
-        className={`row-anim flex max-h-[94vh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl md:rounded-2xl ${
+      data-testid="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div role="dialog" aria-modal="true" aria-label={title} data-testid="modal"
+        className={`app-modal-panel row-anim flex min-h-0 max-h-[94vh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl md:rounded-2xl ${
           wide ? "md:max-w-4xl" : "md:max-w-xl"}`}>
         <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
           <div>
             <h3 className="font-head text-[18px] font-bold text-ink">{title}</h3>
             {subtitle && <p className="mt-0.5 text-[13px] text-muted">{subtitle}</p>}
           </div>
-          <button onClick={onClose} data-testid="modal-close" className="rounded-lg p-1.5 text-muted hover:bg-canvas hover:text-ink">
+          <button onClick={onClose} aria-label="Close dialog" data-testid="modal-close" className="rounded-lg p-1.5 text-muted hover:bg-canvas hover:text-ink">
             <X size={20} />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        <div data-testid="modal-content" className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">{children}</div>
         {footer && <div className="flex gap-2 border-t border-line bg-canvas/60 px-5 py-3.5">{footer}</div>}
       </div>
     </div>
-  );
+  ), document.body);
 }
 
 /* ------------------------------------------------------------ page head */
