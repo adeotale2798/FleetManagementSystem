@@ -290,15 +290,21 @@ export default function Platform({ initialView = "clients" }) {
       || activeAdmins === 0;
   }).length;
 
-  const selectAdmin = (key) => {
+  const selectAdmin = (key, event) => {
+    event?.preventDefault();
+    event?.stopPropagation();
     if (accessIsDirty && !window.confirm("Discard unsaved access changes?")) return;
     const admin = adminOptions.find((option) => option.key === key);
+    if (!admin) return;
+    setSelectedTenantId(admin.tenant_id);
+    setWorkspaceOpen(true);
+    setWorkspaceTab("users");
     setAccessSelection(key);
     setAccessProfileNotice(null);
-    setAccessDraft(admin ? {
+    setAccessDraft({
       ...ADMIN_ACCESS_DEFAULTS,
       ...(admin.admin_access || {}),
-    } : null);
+    });
   };
 
   const selectTenant = (tenantId) => {
@@ -927,7 +933,8 @@ export default function Platform({ initialView = "clients" }) {
             </p>
           </div>
           <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-800">
-            {t.active_admins ?? 0} active · {t.admins ?? 0} total
+            {(selectedTenant.admins || []).filter((admin) => admin.active).length} active
+            {" · "}{selectedTenant.admin_count ?? selectedTenant.admins?.length ?? 0} total
           </span>
         </div>
         {selectedTenant && <div className="mb-4 grid gap-3 rounded-lg bg-canvas p-3 text-sm sm:grid-cols-3">
@@ -952,7 +959,7 @@ export default function Platform({ initialView = "clients" }) {
               .filter(([key, enabled]) => enabled
                 && isSectionIncluded(key, admin.features, admin.subscription_access)).length;
             return <button type="button" key={admin.key} data-testid={`select-admin-${admin.username}`}
-              aria-pressed={active} onClick={() => selectAdmin(admin.key)}
+              aria-pressed={active} onClick={(event) => selectAdmin(admin.key, event)}
               className={`flex items-center justify-between gap-3 rounded-xl border p-3 text-left transition-colors ${
                 active ? "border-brand-500 bg-brand-50/60 ring-1 ring-brand-500/20" : "border-line hover:border-brand-300"
               }`}>
@@ -1298,40 +1305,81 @@ export default function Platform({ initialView = "clients" }) {
 }
 
 function PlatformErrorLog({ logs }) {
+  const statusLabel = (status) => {
+    if (status === 0) return "Browser error";
+    if (status === 409) return "409 · Conflict";
+    if (status === 422) return "422 · Validation error";
+    if (status >= 500) return `${status} · Server error`;
+    if (status >= 400) return `${status} · Request error`;
+    return `HTTP ${status}`;
+  };
+  const eventLabel = (eventType) => eventType
+    ? eventType.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
+    : "";
+
   return (
     <Card className="overflow-hidden" data-testid="platform-error-log">
       <div className="border-b border-line px-4 py-3">
-        <h2 className="font-head text-[15.5px] font-bold">Application API errors</h2>
+        <h2 className="font-head text-[15.5px] font-bold">Application errors</h2>
         <p className="text-[12.5px] text-muted">
-          Server-side API failures and failed write requests from across the app. Stack traces are visible to platform owners only.
+          Browser crashes and failed API requests. Open a trace for technical details; traces are visible to platform owners only.
         </p>
       </div>
       {logs.error ? <ErrorState text={logs.error} onRetry={logs.reload} />
         : logs.loading && !logs.data?.length ? <Loader label="Loading server errors…" />
-          : <DataTable testid="error-log"
-            columns={[
-              { key: "created_at", label: "When", render: (row) => dmyDateTime(row.created_at) },
-              { key: "source", label: "Source", render: (row) => row.source === "client" ? "Browser" : "Server" },
-              { key: "method", label: "Method" },
-              { key: "path", label: "Path", strong: true },
-              { key: "status", label: "Status" },
-              { key: "reference_id", label: "Reference" },
-              {
-                key: "detail",
-                label: "Detail",
-                render: (row) => (
-                  <div>
-                    <p>{row.detail}</p>
-                    {row.traceback && <details className="mt-1">
-                      <summary className="cursor-pointer text-xs text-brand-700">Traceback</summary>
-                      <pre className="mt-1 max-w-xl whitespace-pre-wrap text-xs">{row.traceback}</pre>
-                    </details>}
+          : logs.data?.length ? (
+            <div className="divide-y divide-line" data-testid="error-log">
+              {logs.data.map((row) => (
+                <article key={row.id} data-testid={`error-entry-${row.id}`} className="min-w-0 p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11.5px] font-bold uppercase tracking-wide ${
+                      row.status === 0 || row.status >= 500
+                        ? "bg-red-50 text-red-700"
+                        : row.status === 409 ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-700"
+                    }`}>
+                      {statusLabel(row.status)}
+                    </span>
+                    <Badge>{row.source === "client" ? "Browser" : "Server"}</Badge>
+                    {row.event_type && <span className="text-xs text-muted">{eventLabel(row.event_type)}</span>}
+                    <time className="ml-auto text-xs text-muted">{dmyDateTime(row.created_at)}</time>
                   </div>
-                ),
-              },
-            ]}
-            rows={logs.data || []}
-            empty={<EmptyState title="No server errors" text="When an API returns an error, it will appear here." />} />}
+
+                  <div className="mt-3 grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(15rem,0.7fr)]">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted">Where</p>
+                      <p className="mt-1 break-all font-mono text-sm font-semibold text-ink">
+                        {row.method && row.method !== "CLIENT" && <span>{row.method} </span>}
+                        {row.path || "Unknown route"}
+                      </p>
+                      {row.tenant_id && (
+                        <p className="mt-1 break-all text-xs text-muted">Business ID: {row.tenant_id}</p>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted">What happened</p>
+                      <p className="mt-1 whitespace-pre-wrap break-words text-sm text-ink">{row.detail || "No error message was recorded."}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1 border-t border-line pt-2 text-xs">
+                    <span className="shrink-0 font-semibold text-muted">Reference ID</span>
+                    <code className="min-w-0 break-all font-mono text-ink">{row.reference_id || row.id}</code>
+                  </div>
+
+                  {row.traceback && (
+                    <details className="mt-3 border-t border-line pt-2">
+                      <summary className="w-fit cursor-pointer text-sm font-semibold text-brand-700">
+                        Show technical details
+                      </summary>
+                      <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-canvas p-3 text-xs leading-relaxed text-ink">
+                        {row.traceback}
+                      </pre>
+                    </details>
+                  )}
+                </article>
+              ))}
+            </div>
+          ) : <EmptyState title="No matching errors" text="Try clearing or changing the filters to find application errors." />}
     </Card>
   );
 }
@@ -1385,10 +1433,10 @@ export function PlatformErrors() {
               placeholder="/api/platform/summary" aria-label="Filter by route" />
           </label>
           <label className="text-sm font-medium text-ink">
-            HTTP status
-            <input className="fld mt-1" type="number" min="400" max="599"
+            HTTP status (use 0 for browser errors)
+            <input className="fld mt-1" type="number" min="0" max="599"
               value={draftFilters.status} onChange={updateDraft("status")}
-              placeholder="Any status" aria-label="Filter by HTTP status" />
+              placeholder="Any status, e.g. 409" aria-label="Filter by HTTP status" />
           </label>
           <label className="text-sm font-medium text-ink">
             Error source

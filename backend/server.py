@@ -2148,7 +2148,7 @@ async def platform_tenants(u=Depends(require_super)):
             "admins": admin_rows,
             "admin_count": len(admin_rows),
             "stats": stats,
-            "db_name": tenant.get("db_name") or tenant_db_name(tenant["_id"]),
+            "db_name": tenant_db_name(tenant["_id"]),
         }
 
     return await asyncio.gather(*(load_tenant(tenant) for tenant in tenants))
@@ -2159,7 +2159,7 @@ async def platform_errors(
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
     route: Optional[str] = Query(None, max_length=200),
-    status: Optional[int] = Query(None, ge=400, le=599),
+    status: Optional[int] = Query(None, ge=0, le=599),
     source: Optional[str] = Query(None, pattern="^(server|client)$"),
     reference_id: Optional[str] = Query(None, max_length=100),
     from_date: Optional[date] = None,

@@ -1,0 +1,2521 @@
+[
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Bag",
+        "hindi_name":  "बोरा",
+        "hinglish_name":  "Bora",
+        "aliases":  [
+                        "Bora",
+                        "thaila",
+                        "bag",
+                        "Bori"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Sack",
+        "hindi_name":  "कट्टा",
+        "hinglish_name":  "Katta",
+        "aliases":  [
+                        "Katta",
+                        "Kattha"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Gunny Bag",
+        "hindi_name":  "बरदाना",
+        "hinglish_name":  "Bardana",
+        "aliases":  [
+                        "Bardana",
+                        "jute bag",
+                        "bora"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Jute Bag",
+        "hindi_name":  "जूट का बोरा",
+        "hinglish_name":  "Jute ka Bora",
+        "aliases":  [
+                        "Jute ka Bora"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Small Bag",
+        "hindi_name":  "छोटी थैली",
+        "hinglish_name":  "Chhoti Thaili",
+        "aliases":  [
+                        "Chhoti Thaili"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Bundle",
+        "hindi_name":  "गठ्ठर",
+        "hinglish_name":  "Gaththar",
+        "aliases":  [
+                        "Gaththar",
+                        "bundle"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Bale",
+        "hindi_name":  "गांठ",
+        "hinglish_name":  "Gaanth",
+        "aliases":  [
+                        "Gaanth"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Box",
+        "hindi_name":  "बॉक्स",
+        "hinglish_name":  "Box",
+        "aliases":  [
+                        "Box",
+                        "baksa",
+                        "bक्स",
+                        "Buxaa"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Carton",
+        "hindi_name":  "कार्टन",
+        "hinglish_name":  "Carton",
+        "aliases":  [
+                        "Carton",
+                        "gatta peti"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Wooden Crate",
+        "hindi_name":  "लकड़ी की पेटी",
+        "hinglish_name":  "Lakdi ki Peti",
+        "aliases":  [
+                        "Lakdi ki Peti"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Case",
+        "hindi_name":  "पेटी",
+        "hinglish_name":  "Peti",
+        "aliases":  [
+                        "Peti"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Drum",
+        "hindi_name":  "ड्रम",
+        "hinglish_name":  "Drum",
+        "aliases":  [
+                        "Drum"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Barrel",
+        "hindi_name":  "पीपा",
+        "hinglish_name":  "Peepa",
+        "aliases":  [
+                        "Peepa"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Tin",
+        "hindi_name":  "टिन का डिब्बा",
+        "hinglish_name":  "Tin ka Dabba",
+        "aliases":  [
+                        "Tin ka Dabba"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Can",
+        "hindi_name":  "कनस्तर",
+        "hinglish_name":  "Kanastar",
+        "aliases":  [
+                        "Kanastar"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Jar",
+        "hindi_name":  "जार",
+        "hinglish_name":  "Jar",
+        "aliases":  [
+                        "Jar",
+                        "martban"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Bottle",
+        "hindi_name":  "बोतल",
+        "hinglish_name":  "Botal",
+        "aliases":  [
+                        "Botal"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Packet",
+        "hindi_name":  "पैकेट",
+        "hinglish_name":  "Packet",
+        "aliases":  [
+                        "Packet"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Pouch",
+        "hindi_name":  "पाउच",
+        "hinglish_name":  "Pouch",
+        "aliases":  [
+                        "Pouch",
+                        "chhoti thaili"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Pack",
+        "hindi_name":  "पैक",
+        "hinglish_name":  "Pack",
+        "aliases":  [
+                        "Pack"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Roll",
+        "hindi_name":  "रोल",
+        "hinglish_name":  "Roll",
+        "aliases":  [
+                        "Roll"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Coil",
+        "hindi_name":  "कुंडली",
+        "hinglish_name":  "Kundli",
+        "aliases":  [
+                        "Kundli"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Loose Goods",
+        "hindi_name":  "खुला माल",
+        "hinglish_name":  "Khula Maal",
+        "aliases":  [
+                        "Khula Maal"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Piece",
+        "hindi_name":  "नग",
+        "hinglish_name":  "Nag",
+        "aliases":  [
+                        "Nag",
+                        "unit"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Pair",
+        "hindi_name":  "जोड़ी",
+        "hinglish_name":  "Jodi",
+        "aliases":  [
+                        "Jodi"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Dozen",
+        "hindi_name":  "दर्जन",
+        "hinglish_name":  "Darjan",
+        "aliases":  [
+                        "Darjan"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Kilogram",
+        "hindi_name":  "किलोग्राम",
+        "hinglish_name":  "Kilogram",
+        "aliases":  [
+                        "Kilogram",
+                        "kg",
+                        "kilo"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Quintal",
+        "hindi_name":  "क्विंटल",
+        "hinglish_name":  "Quintal",
+        "aliases":  [
+                        "Quintal"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Tonne",
+        "hindi_name":  "टन",
+        "hinglish_name":  "Ton",
+        "aliases":  [
+                        "Ton"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Litre",
+        "hindi_name":  "लीटर",
+        "hinglish_name":  "Litre",
+        "aliases":  [
+                        "Litre"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Meter",
+        "hindi_name":  "मीटर",
+        "hinglish_name":  "Meter",
+        "aliases":  [
+                        "Meter"
+                    ]
+    },
+    {
+        "category":  "Packaging \u0026 Units",
+        "english_name":  "Set",
+        "hindi_name":  "सेट",
+        "hinglish_name":  "Set",
+        "aliases":  [
+                        "Set"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Wheat",
+        "hindi_name":  "गेहूँ",
+        "hinglish_name":  "Gehu",
+        "aliases":  [
+                        "Gehu",
+                        "gahu",
+                        "Gehun"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Wheat Flour",
+        "hindi_name":  "गेहूँ का आटा",
+        "hinglish_name":  "Gehu ka Aata",
+        "aliases":  [
+                        "Gehu ka Aata"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Flour",
+        "hindi_name":  "आटा",
+        "hinglish_name":  "Aata",
+        "aliases":  [
+                        "Aata",
+                        "atta",
+                        "Pith"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Pearl Millet",
+        "hindi_name":  "बाजरा",
+        "hinglish_name":  "Bajra",
+        "aliases":  [
+                        "Bajra"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Sorghum / Jowar",
+        "hindi_name":  "ज्वार",
+        "hinglish_name":  "Jowar",
+        "aliases":  [
+                        "Jowar"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Rice",
+        "hindi_name":  "चावल",
+        "hinglish_name":  "Chawal",
+        "aliases":  [
+                        "Chawal"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Broken Rice",
+        "hindi_name":  "टूटा चावल",
+        "hinglish_name":  "Toota Chawal",
+        "aliases":  [
+                        "Toota Chawal"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Maize / Corn",
+        "hindi_name":  "मक्का",
+        "hinglish_name":  "Makka",
+        "aliases":  [
+                        "Makka"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Gram / Chickpeas",
+        "hindi_name":  "चना",
+        "hinglish_name":  "Chana",
+        "aliases":  [
+                        "Chana",
+                        "Channa",
+                        "Harbhara",
+                        "Harbhara Dal"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Kabuli Chickpeas",
+        "hindi_name":  "काबुली चना",
+        "hinglish_name":  "Kabuli Chana",
+        "aliases":  [
+                        "Kabuli Chana",
+                        "Kabuli Chana Dal"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Split Bengal Gram",
+        "hindi_name":  "चना दाल",
+        "hinglish_name":  "Chana Dal",
+        "aliases":  [
+                        "Chana Dal",
+                        "Channa Dal",
+                        "Chana Daal"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Green Gram / Mung",
+        "hindi_name":  "मूंग",
+        "hinglish_name":  "Moong",
+        "aliases":  [
+                        "Moong"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Split Green Gram",
+        "hindi_name":  "मूंग दाल",
+        "hinglish_name":  "Moong Dal",
+        "aliases":  [
+                        "Moong Dal"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Black Gram / Urad",
+        "hindi_name":  "उड़द",
+        "hinglish_name":  "Urad",
+        "aliases":  [
+                        "Urad",
+                        "udad",
+                        "Urad Dal",
+                        "Udad Dal"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Split Black Gram",
+        "hindi_name":  "उड़द दाल",
+        "hinglish_name":  "Urad Dal",
+        "aliases":  [
+                        "Urad Dal"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Split Dehusked Urad",
+        "hindi_name":  "उड़द मोगर",
+        "hinglish_name":  "Urad Mogar",
+        "aliases":  [
+                        "Urad Mogar",
+                        "udad mogar",
+                        "Urad Mungar"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Pigeon Pea / Toor",
+        "hindi_name":  "अरहर / तूर",
+        "hinglish_name":  "Arhar / Toor",
+        "aliases":  [
+                        "Arhar / Toor"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Toor Dal",
+        "hindi_name":  "तूर दाल",
+        "hinglish_name":  "Toor Dal",
+        "aliases":  [
+                        "Toor Dal"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Lentils / Masoor",
+        "hindi_name":  "मसूर",
+        "hinglish_name":  "Masoor",
+        "aliases":  [
+                        "Masoor"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Masoor Dal",
+        "hindi_name":  "मसूर दाल",
+        "hinglish_name":  "Masoor Dal",
+        "aliases":  [
+                        "Masoor Dal"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Peas",
+        "hindi_name":  "मटर",
+        "hinglish_name":  "Matar",
+        "aliases":  [
+                        "Matar",
+                        "batana",
+                        "vatana",
+                        "Mutter",
+                        "Vatanay"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "White Peas",
+        "hindi_name":  "सफेद मटर",
+        "hinglish_name":  "Safed Matar",
+        "aliases":  [
+                        "Safed Matar"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Flattened Peas",
+        "hindi_name":  "चपटा मटर",
+        "hinglish_name":  "Chapta Matar",
+        "aliases":  [
+                        "Chapta Matar",
+                        "Chapta Batana",
+                        "Chapta Vatana",
+                        "Flat Peas"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Dried Peas",
+        "hindi_name":  "सूखी मटर",
+        "hinglish_name":  "Sukhi Matar",
+        "aliases":  [
+                        "Sukhi Matar"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Cowpea",
+        "hindi_name":  "लोबिया",
+        "hinglish_name":  "Lobiya",
+        "aliases":  [
+                        "Lobiya"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Barbati Beans",
+        "hindi_name":  "बरबटी",
+        "hinglish_name":  "Barbati",
+        "aliases":  [
+                        "Barbati"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Semolina",
+        "hindi_name":  "सूजी",
+        "hinglish_name":  "Suji",
+        "aliases":  [
+                        "Suji"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Broken Wheat / Dalia",
+        "hindi_name":  "दलिया",
+        "hinglish_name":  "Dalia",
+        "aliases":  [
+                        "Dalia",
+                        "daliya"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Puffed Rice",
+        "hindi_name":  "मुरमुरा",
+        "hinglish_name":  "Murmura",
+        "aliases":  [
+                        "Murmura"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Flattened Rice / Poha",
+        "hindi_name":  "पोहा",
+        "hinglish_name":  "Poha",
+        "aliases":  [
+                        "Poha"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Puffed Grain / Lahya",
+        "hindi_name":  "लाह्या",
+        "hinglish_name":  "Lahya",
+        "aliases":  [
+                        "Lahya",
+                        "lahi",
+                        "Lai"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Sago",
+        "hindi_name":  "साबूदाना",
+        "hinglish_name":  "Sabudana",
+        "aliases":  [
+                        "Sabudana"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Cornflour",
+        "hindi_name":  "कॉर्नफ्लोर",
+        "hinglish_name":  "Cornflour",
+        "aliases":  [
+                        "Cornflour"
+                    ]
+    },
+    {
+        "category":  "Grains, Pulses \u0026 Flour",
+        "english_name":  "Cornmeal",
+        "hindi_name":  "मक्के का आटा",
+        "hinglish_name":  "Makke ka Aata",
+        "aliases":  [
+                        "Makke ka Aata"
+                    ]
+    },
+    {
+        "category":  "Dry Fruits, Nuts \u0026 Seeds",
+        "english_name":  "Groundnut / Peanut",
+        "hindi_name":  "मूंगफली",
+        "hinglish_name":  "Mungfali",
+        "aliases":  [
+                        "Mungfali",
+                        "shengdana",
+                        "singdana",
+                        "sengdana",
+                        "peanut",
+                        "Moongfali",
+                        "Mungphali",
+                        "Sengadana",
+                        "Groundnut"
+                    ]
+    },
+    {
+        "category":  "Dry Fruits, Nuts \u0026 Seeds",
+        "english_name":  "Groundnut (Maharashtra Usage)",
+        "hindi_name":  "शेंगदाना",
+        "hinglish_name":  "Shengdana",
+        "aliases":  [
+                        "Shengdana",
+                        "mungfali",
+                        "singdana",
+                        "Groundnut",
+                        "Peanut",
+                        "Moongfali",
+                        "Sengdana",
+                        "Sengadana"
+                    ]
+    },
+    {
+        "category":  "Dry Fruits, Nuts \u0026 Seeds",
+        "english_name":  "Sesame Seeds",
+        "hindi_name":  "तिल",
+        "hinglish_name":  "Til",
+        "aliases":  [
+                        "Til",
+                        "tilli",
+                        "Tilli Dana"
+                    ]
+    },
+    {
+        "category":  "Dry Fruits, Nuts \u0026 Seeds",
+        "english_name":  "Cashew Nuts",
+        "hindi_name":  "काजू",
+        "hinglish_name":  "Kaju",
+        "aliases":  [
+                        "Kaju"
+                    ]
+    },
+    {
+        "category":  "Dry Fruits, Nuts \u0026 Seeds",
+        "english_name":  "Almonds",
+        "hindi_name":  "बादाम",
+        "hinglish_name":  "Badam",
+        "aliases":  [
+                        "Badam",
+                        "Badaam",
+                        "Baadam"
+                    ]
+    },
+    {
+        "category":  "Dry Fruits, Nuts \u0026 Seeds",
+        "english_name":  "Walnuts",
+        "hindi_name":  "अखरोट",
+        "hinglish_name":  "Akhrot",
+        "aliases":  [
+                        "Akhrot"
+                    ]
+    },
+    {
+        "category":  "Dry Fruits, Nuts \u0026 Seeds",
+        "english_name":  "Raisins",
+        "hindi_name":  "किशमिश",
+        "hinglish_name":  "Kishmish",
+        "aliases":  [
+                        "Kishmish",
+                        "kismis",
+                        "Kismish",
+                        "Kishmis"
+                    ]
+    },
+    {
+        "category":  "Dry Fruits, Nuts \u0026 Seeds",
+        "english_name":  "Dates",
+        "hindi_name":  "खजूर",
+        "hinglish_name":  "Khajur",
+        "aliases":  [
+                        "Khajur",
+                        "Khajoor",
+                        "Khajura"
+                    ]
+    },
+    {
+        "category":  "Dry Fruits, Nuts \u0026 Seeds",
+        "english_name":  "Dry Dates",
+        "hindi_name":  "खारक",
+        "hinglish_name":  "Kharik",
+        "aliases":  [
+                        "Kharik",
+                        "kharek",
+                        "chuhara",
+                        "Kharak",
+                        "Chuara"
+                    ]
+    },
+    {
+        "category":  "Dry Fruits, Nuts \u0026 Seeds",
+        "english_name":  "Pistachios",
+        "hindi_name":  "पिस्ता",
+        "hinglish_name":  "Pista",
+        "aliases":  [
+                        "Pista"
+                    ]
+    },
+    {
+        "category":  "Dry Fruits, Nuts \u0026 Seeds",
+        "english_name":  "Dry Coconut",
+        "hindi_name":  "सूखा नारियल / खोबरा",
+        "hinglish_name":  "Sukha Nariyal / Khobra",
+        "aliases":  [
+                        "Sukha Nariyal / Khobra",
+                        "khopra",
+                        "Khobra",
+                        "Copra",
+                        "Sukha Nariyal"
+                    ]
+    },
+    {
+        "category":  "Dry Fruits, Nuts \u0026 Seeds",
+        "english_name":  "Grated Dry Coconut",
+        "hindi_name":  "खोबरा किस",
+        "hinglish_name":  "Khobra Kis",
+        "aliases":  [
+                        "Khobra Kis",
+                        "Khopra Kis",
+                        "Grated Coconut"
+                    ]
+    },
+    {
+        "category":  "Dry Fruits, Nuts \u0026 Seeds",
+        "english_name":  "Betel Nut / Areca Nut",
+        "hindi_name":  "सुपारी",
+        "hinglish_name":  "Supari",
+        "aliases":  [
+                        "Supari",
+                        "Areca Nut",
+                        "Betel Nut"
+                    ]
+    },
+    {
+        "category":  "Dry Fruits, Nuts \u0026 Seeds",
+        "english_name":  "Chironji Seeds",
+        "hindi_name":  "चिरौंजी",
+        "hinglish_name":  "Chironji",
+        "aliases":  [
+                        "Chironji"
+                    ]
+    },
+    {
+        "category":  "Dry Fruits, Nuts \u0026 Seeds",
+        "english_name":  "Soy Chunks",
+        "hindi_name":  "सोया बड़ी",
+        "hinglish_name":  "Soya Badi",
+        "aliases":  [
+                        "Soya Badi",
+                        "Soyabadi",
+                        "Soya Wadi"
+                    ]
+    },
+    {
+        "category":  "Dry Fruits, Nuts \u0026 Seeds",
+        "english_name":  "Soybean",
+        "hindi_name":  "सोयाबीन",
+        "hinglish_name":  "Soyabean",
+        "aliases":  [
+                        "Soyabean"
+                    ]
+    },
+    {
+        "category":  "Dry Fruits, Nuts \u0026 Seeds",
+        "english_name":  "Fennel Seeds",
+        "hindi_name":  "सौंफ",
+        "hinglish_name":  "Saunf",
+        "aliases":  [
+                        "Saunf"
+                    ]
+    },
+    {
+        "category":  "Dry Fruits, Nuts \u0026 Seeds",
+        "english_name":  "Flax Seeds",
+        "hindi_name":  "अलसी",
+        "hinglish_name":  "Alsi",
+        "aliases":  [
+                        "Alsi"
+                    ]
+    },
+    {
+        "category":  "Dry Fruits, Nuts \u0026 Seeds",
+        "english_name":  "Poppy Seeds",
+        "hindi_name":  "खसखस",
+        "hinglish_name":  "Khaskhas",
+        "aliases":  [
+                        "Khaskhas"
+                    ]
+    },
+    {
+        "category":  "Dry Fruits, Nuts \u0026 Seeds",
+        "english_name":  "Melon Seeds",
+        "hindi_name":  "खरबूजे के बीज",
+        "hinglish_name":  "Kharbuje ke Beej",
+        "aliases":  [
+                        "Kharbuje ke Beej"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Turmeric",
+        "hindi_name":  "हल्दी",
+        "hinglish_name":  "Haldi",
+        "aliases":  [
+                        "Haldi",
+                        "hardi",
+                        "Haldee"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Turmeric Powder",
+        "hindi_name":  "हल्दी पाउडर",
+        "hinglish_name":  "Haldi Powder",
+        "aliases":  [
+                        "Haldi Powder",
+                        "Pisi Haldi",
+                        "Pisi Hui Haldi"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Red Chilli",
+        "hindi_name":  "लाल मिर्च",
+        "hinglish_name":  "Lal Mirch",
+        "aliases":  [
+                        "Lal Mirch",
+                        "Mirchi"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Red Chilli Powder",
+        "hindi_name":  "मिर्ची पाउडर",
+        "hinglish_name":  "Mirchi Powder",
+        "aliases":  [
+                        "Mirchi Powder",
+                        "Lal Mirch Powder",
+                        "Pisi Mirchi"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Coriander Seeds",
+        "hindi_name":  "धनिया",
+        "hinglish_name":  "Dhaniya",
+        "aliases":  [
+                        "Dhaniya"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Coriander Powder",
+        "hindi_name":  "धनिया पाउडर",
+        "hinglish_name":  "Dhaniya Powder",
+        "aliases":  [
+                        "Dhaniya Powder"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Cumin Seeds",
+        "hindi_name":  "जीरा",
+        "hinglish_name":  "Jeera",
+        "aliases":  [
+                        "Jeera",
+                        "jira",
+                        "Jira Dana"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Shahi Jeera",
+        "hindi_name":  "शाही जीरा",
+        "hinglish_name":  "Shahi Jeera",
+        "aliases":  [
+                        "Shahi Jeera",
+                        "Kala Jeera"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Mustard Seeds",
+        "hindi_name":  "सरसों / राई",
+        "hinglish_name":  "Sarson / Rai",
+        "aliases":  [
+                        "Sarson / Rai"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Fenugreek Seeds",
+        "hindi_name":  "मेथी दाना",
+        "hinglish_name":  "Methi Dana",
+        "aliases":  [
+                        "Methi Dana"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Black Pepper",
+        "hindi_name":  "काली मिर्च",
+        "hinglish_name":  "Kali Mirch",
+        "aliases":  [
+                        "Kali Mirch"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Cloves",
+        "hindi_name":  "लौंग",
+        "hinglish_name":  "Laung",
+        "aliases":  [
+                        "Laung"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Cardamom",
+        "hindi_name":  "इलायची",
+        "hinglish_name":  "Elaichi",
+        "aliases":  [
+                        "Elaichi"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Cinnamon",
+        "hindi_name":  "दालचीनी",
+        "hinglish_name":  "Dalchini",
+        "aliases":  [
+                        "Dalchini"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Bay Leaves",
+        "hindi_name":  "तेज पत्ता",
+        "hinglish_name":  "Tej Patta",
+        "aliases":  [
+                        "Tej Patta"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Asafoetida",
+        "hindi_name":  "हींग",
+        "hinglish_name":  "Hing",
+        "aliases":  [
+                        "Hing"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Rock Salt",
+        "hindi_name":  "सेंधा नमक",
+        "hinglish_name":  "Sendha Namak",
+        "aliases":  [
+                        "Sendha Namak",
+                        "sangda namak",
+                        "Sendha",
+                        "Senda Namak"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Common Salt",
+        "hindi_name":  "साधारण नमक",
+        "hinglish_name":  "Sadharan Namak",
+        "aliases":  [
+                        "Sadharan Namak"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Spice Mix",
+        "hindi_name":  "मसाला",
+        "hinglish_name":  "Masala",
+        "aliases":  [
+                        "Masala",
+                        "masla"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Mixed Spices",
+        "hindi_name":  "मिला-जुला मसाला",
+        "hinglish_name":  "Mila-Jula Masala",
+        "aliases":  [
+                        "Mila-Jula Masala"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Grocery Goods",
+        "hindi_name":  "किराना सामान",
+        "hinglish_name":  "Kirana Samaan",
+        "aliases":  [
+                        "Kirana Samaan",
+                        "kirana"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Jaggery",
+        "hindi_name":  "गुड़",
+        "hinglish_name":  "Gud",
+        "aliases":  [
+                        "Gud",
+                        "Gur"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Sugar",
+        "hindi_name":  "चीनी",
+        "hinglish_name":  "Cheeni",
+        "aliases":  [
+                        "Cheeni",
+                        "Chini",
+                        "Sakhar"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Rock Sugar / Mishri",
+        "hindi_name":  "मिश्री",
+        "hinglish_name":  "Mishri",
+        "aliases":  [
+                        "Mishri"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Tamarind",
+        "hindi_name":  "इमली",
+        "hinglish_name":  "Imli",
+        "aliases":  [
+                        "Imli"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Dry Herbs",
+        "hindi_name":  "सूखी जड़ी-बूटियाँ",
+        "hinglish_name":  "Sukhi Jadi-Buti",
+        "aliases":  [
+                        "Sukhi Jadi-Buti"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Herbal Goods",
+        "hindi_name":  "जड़ी-बूटी",
+        "hinglish_name":  "Jadi-Buti",
+        "aliases":  [
+                        "Jadi-Buti"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Gum Resin",
+        "hindi_name":  "राल",
+        "hinglish_name":  "Raal",
+        "aliases":  [
+                        "Raal"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Edible Gum",
+        "hindi_name":  "गोंद",
+        "hinglish_name":  "Gond",
+        "aliases":  [
+                        "Gond"
+                    ]
+    },
+    {
+        "category":  "Spices \u0026 Grocery",
+        "english_name":  "Betel Leaf",
+        "hindi_name":  "पान का पत्ता",
+        "hinglish_name":  "Paan ka Patta",
+        "aliases":  [
+                        "Paan ka Patta"
+                    ]
+    },
+    {
+        "category":  "Snacks, Sweets \u0026 Packaged Foods",
+        "english_name":  "Chikki",
+        "hindi_name":  "चिक्की",
+        "hinglish_name":  "Chikki",
+        "aliases":  [
+                        "Chikki"
+                    ]
+    },
+    {
+        "category":  "Snacks, Sweets \u0026 Packaged Foods",
+        "english_name":  "Ladoo",
+        "hindi_name":  "लड्डू",
+        "hinglish_name":  "Laddu",
+        "aliases":  [
+                        "Laddu",
+                        "Ladu"
+                    ]
+    },
+    {
+        "category":  "Snacks, Sweets \u0026 Packaged Foods",
+        "english_name":  "Namkeen",
+        "hindi_name":  "नमकीन",
+        "hinglish_name":  "Namkeen",
+        "aliases":  [
+                        "Namkeen"
+                    ]
+    },
+    {
+        "category":  "Snacks, Sweets \u0026 Packaged Foods",
+        "english_name":  "Sev",
+        "hindi_name":  "सेव",
+        "hinglish_name":  "Sev",
+        "aliases":  [
+                        "Sev",
+                        "save",
+                        "Shev"
+                    ]
+    },
+    {
+        "category":  "Snacks, Sweets \u0026 Packaged Foods",
+        "english_name":  "Bhujia",
+        "hindi_name":  "भुजिया",
+        "hinglish_name":  "Bhujia",
+        "aliases":  [
+                        "Bhujia"
+                    ]
+    },
+    {
+        "category":  "Snacks, Sweets \u0026 Packaged Foods",
+        "english_name":  "Mixture Snack",
+        "hindi_name":  "मिक्सचर नमकीन",
+        "hinglish_name":  "Mixture Namkeen",
+        "aliases":  [
+                        "Mixture Namkeen"
+                    ]
+    },
+    {
+        "category":  "Snacks, Sweets \u0026 Packaged Foods",
+        "english_name":  "Cake",
+        "hindi_name":  "केक",
+        "hinglish_name":  "Cake",
+        "aliases":  [
+                        "Cake"
+                    ]
+    },
+    {
+        "category":  "Snacks, Sweets \u0026 Packaged Foods",
+        "english_name":  "Cake Scraps / Crumbs",
+        "hindi_name":  "केक का चूरा",
+        "hinglish_name":  "Cake ka Chura",
+        "aliases":  [
+                        "Cake ka Chura",
+                        "kek kharda",
+                        "Cake Kharda",
+                        "Cake Crumbs"
+                    ]
+    },
+    {
+        "category":  "Snacks, Sweets \u0026 Packaged Foods",
+        "english_name":  "Biscuits",
+        "hindi_name":  "बिस्कुट",
+        "hinglish_name":  "Biscuit",
+        "aliases":  [
+                        "Biscuit"
+                    ]
+    },
+    {
+        "category":  "Snacks, Sweets \u0026 Packaged Foods",
+        "english_name":  "Cookies",
+        "hindi_name":  "कुकीज़",
+        "hinglish_name":  "Cookies",
+        "aliases":  [
+                        "Cookies"
+                    ]
+    },
+    {
+        "category":  "Snacks, Sweets \u0026 Packaged Foods",
+        "english_name":  "Rusk",
+        "hindi_name":  "रस्क",
+        "hinglish_name":  "Rusk",
+        "aliases":  [
+                        "Rusk",
+                        "toast"
+                    ]
+    },
+    {
+        "category":  "Snacks, Sweets \u0026 Packaged Foods",
+        "english_name":  "Bread",
+        "hindi_name":  "ब्रेड",
+        "hinglish_name":  "Bread",
+        "aliases":  [
+                        "Bread"
+                    ]
+    },
+    {
+        "category":  "Snacks, Sweets \u0026 Packaged Foods",
+        "english_name":  "Chocolates",
+        "hindi_name":  "चॉकलेट",
+        "hinglish_name":  "Chocolate",
+        "aliases":  [
+                        "Chocolate"
+                    ]
+    },
+    {
+        "category":  "Snacks, Sweets \u0026 Packaged Foods",
+        "english_name":  "Candy / Toffee",
+        "hindi_name":  "टॉफी",
+        "hinglish_name":  "Toffee",
+        "aliases":  [
+                        "Toffee"
+                    ]
+    },
+    {
+        "category":  "Snacks, Sweets \u0026 Packaged Foods",
+        "english_name":  "Confectionery",
+        "hindi_name":  "कन्फेक्शनरी",
+        "hinglish_name":  "Confectionery",
+        "aliases":  [
+                        "Confectionery",
+                        "mithai"
+                    ]
+    },
+    {
+        "category":  "Snacks, Sweets \u0026 Packaged Foods",
+        "english_name":  "Papad",
+        "hindi_name":  "पापड़",
+        "hinglish_name":  "Papad",
+        "aliases":  [
+                        "Papad"
+                    ]
+    },
+    {
+        "category":  "Snacks, Sweets \u0026 Packaged Foods",
+        "english_name":  "Fryums",
+        "hindi_name":  "फ्रायम्स",
+        "hinglish_name":  "Fryums",
+        "aliases":  [
+                        "Fryums"
+                    ]
+    },
+    {
+        "category":  "Snacks, Sweets \u0026 Packaged Foods",
+        "english_name":  "Noodles",
+        "hindi_name":  "नूडल्स",
+        "hinglish_name":  "Noodles",
+        "aliases":  [
+                        "Noodles"
+                    ]
+    },
+    {
+        "category":  "Snacks, Sweets \u0026 Packaged Foods",
+        "english_name":  "Vermicelli",
+        "hindi_name":  "सेवई",
+        "hinglish_name":  "Sevai",
+        "aliases":  [
+                        "Sevai"
+                    ]
+    },
+    {
+        "category":  "Snacks, Sweets \u0026 Packaged Foods",
+        "english_name":  "Food Products",
+        "hindi_name":  "खाद्य सामग्री",
+        "hinglish_name":  "Khadya Samagri",
+        "aliases":  [
+                        "Khadya Samagri"
+                    ]
+    },
+    {
+        "category":  "Snacks, Sweets \u0026 Packaged Foods",
+        "english_name":  "Bakery Goods",
+        "hindi_name":  "बेकरी सामान",
+        "hinglish_name":  "Bakery Samaan",
+        "aliases":  [
+                        "Bakery Samaan"
+                    ]
+    },
+    {
+        "category":  "Snacks, Sweets \u0026 Packaged Foods",
+        "english_name":  "Sweets",
+        "hindi_name":  "मिठाई",
+        "hinglish_name":  "Mithai",
+        "aliases":  [
+                        "Mithai"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Disposable Items",
+        "hindi_name":  "डिस्पोजेबल सामान",
+        "hinglish_name":  "Disposable Samaan",
+        "aliases":  [
+                        "Disposable Samaan",
+                        "disposal",
+                        "Disposable",
+                        "Dispo"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Paper Plates",
+        "hindi_name":  "कागज़ की प्लेट",
+        "hinglish_name":  "Kagaz ki Plate",
+        "aliases":  [
+                        "Kagaz ki Plate"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Paper Cups",
+        "hindi_name":  "कागज़ के कप",
+        "hinglish_name":  "Kagaz ke Cup",
+        "aliases":  [
+                        "Kagaz ke Cup"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Disposable Cups",
+        "hindi_name":  "डिस्पोजेबल कप",
+        "hinglish_name":  "Disposable Cup",
+        "aliases":  [
+                        "Disposable Cup"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Disposable Bowls",
+        "hindi_name":  "डिस्पोजेबल कटोरी",
+        "hinglish_name":  "Disposable Katori",
+        "aliases":  [
+                        "Disposable Katori",
+                        "Dona",
+                        "Dona Bowl"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Dona (Disposable Bowl)",
+        "hindi_name":  "दोना",
+        "hinglish_name":  "Dona",
+        "aliases":  [
+                        "Dona"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Paper Dona",
+        "hindi_name":  "कागज़ का दोना",
+        "hinglish_name":  "Kagaz ka Dona",
+        "aliases":  [
+                        "Kagaz ka Dona"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Paper Napkins",
+        "hindi_name":  "पेपर नैपकिन",
+        "hinglish_name":  "Paper Napkin",
+        "aliases":  [
+                        "Paper Napkin"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Plastic Bags",
+        "hindi_name":  "प्लास्टिक की थैली",
+        "hinglish_name":  "Plastic ki Thaili",
+        "aliases":  [
+                        "Plastic ki Thaili",
+                        "panni",
+                        "Polythene Bag",
+                        "Plastic Panni"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Plastic Sheets",
+        "hindi_name":  "प्लास्टिक शीट",
+        "hinglish_name":  "Plastic Sheet",
+        "aliases":  [
+                        "Plastic Sheet"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Plastic Goods",
+        "hindi_name":  "प्लास्टिक का सामान",
+        "hinglish_name":  "Plastic ka Samaan",
+        "aliases":  [
+                        "Plastic ka Samaan"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Paper Goods",
+        "hindi_name":  "कागज़ का सामान",
+        "hinglish_name":  "Kagaz ka Samaan",
+        "aliases":  [
+                        "Kagaz ka Samaan"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Books",
+        "hindi_name":  "किताबें",
+        "hinglish_name":  "Kitabein",
+        "aliases":  [
+                        "Kitabein",
+                        "book"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Stationery",
+        "hindi_name":  "स्टेशनरी सामान",
+        "hinglish_name":  "Stationery Samaan",
+        "aliases":  [
+                        "Stationery Samaan"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Candles",
+        "hindi_name":  "मोमबत्ती",
+        "hinglish_name":  "Mombatti",
+        "aliases":  [
+                        "Mombatti"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Incense Sticks",
+        "hindi_name":  "अगरबत्ती",
+        "hinglish_name":  "Agarbatti",
+        "aliases":  [
+                        "Agarbatti",
+                        "Agar Batti"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Incense Cones",
+        "hindi_name":  "धूप कोन",
+        "hinglish_name":  "Dhoop Cone",
+        "aliases":  [
+                        "Dhoop Cone",
+                        "cone"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Dhoop Sticks",
+        "hindi_name":  "धूपबत्ती",
+        "hinglish_name":  "Dhoopbatti",
+        "aliases":  [
+                        "Dhoopbatti",
+                        "dhoop",
+                        "Dhup"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Camphor",
+        "hindi_name":  "कपूर",
+        "hinglish_name":  "Kapoor",
+        "aliases":  [
+                        "Kapoor"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Soap",
+        "hindi_name":  "साबुन",
+        "hinglish_name":  "Sabun",
+        "aliases":  [
+                        "Sabun"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Detergent Powder",
+        "hindi_name":  "कपड़े धोने का पाउडर",
+        "hinglish_name":  "Kapde Dhone ka Powder",
+        "aliases":  [
+                        "Kapde Dhone ka Powder"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Cream",
+        "hindi_name":  "क्रीम",
+        "hinglish_name":  "Cream",
+        "aliases":  [
+                        "Cream"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Milk Powder",
+        "hindi_name":  "दूध पाउडर",
+        "hinglish_name":  "Doodh Powder",
+        "aliases":  [
+                        "Doodh Powder"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Edible Oil",
+        "hindi_name":  "खाने का तेल",
+        "hinglish_name":  "Khane ka Tel",
+        "aliases":  [
+                        "Khane ka Tel"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Oil Tin",
+        "hindi_name":  "तेल का टिन",
+        "hinglish_name":  "Tel ka Tin",
+        "aliases":  [
+                        "Tel ka Tin"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "Cosmetics",
+        "hindi_name":  "सौंदर्य प्रसाधन",
+        "hinglish_name":  "Saundarya Prasadhan",
+        "aliases":  [
+                        "Saundarya Prasadhan"
+                    ]
+    },
+    {
+        "category":  "Household \u0026 General Merchandise",
+        "english_name":  "General Merchandise",
+        "hindi_name":  "जनरल सामान",
+        "hinglish_name":  "General Samaan",
+        "aliases":  [
+                        "General Samaan"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Coal",
+        "hindi_name":  "कोयला",
+        "hinglish_name":  "Koyla",
+        "aliases":  [
+                        "Koyla",
+                        "Koila"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Charcoal",
+        "hindi_name":  "लकड़ी का कोयला",
+        "hinglish_name":  "Lakdi ka Koyla",
+        "aliases":  [
+                        "Lakdi ka Koyla"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Resin",
+        "hindi_name":  "राल",
+        "hinglish_name":  "Raal",
+        "aliases":  [
+                        "Raal"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Wood",
+        "hindi_name":  "लकड़ी",
+        "hinglish_name":  "Lakdi",
+        "aliases":  [
+                        "Lakdi"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Timber",
+        "hindi_name":  "इमारती लकड़ी",
+        "hinglish_name":  "Imarati Lakdi",
+        "aliases":  [
+                        "Imarati Lakdi"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Bamboo",
+        "hindi_name":  "बांस",
+        "hinglish_name":  "Baans",
+        "aliases":  [
+                        "Baans"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Cotton",
+        "hindi_name":  "कपास",
+        "hinglish_name":  "Kapas",
+        "aliases":  [
+                        "Kapas"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Cotton Bales",
+        "hindi_name":  "कपास की गांठें",
+        "hinglish_name":  "Kapas ki Gaanth",
+        "aliases":  [
+                        "Kapas ki Gaanth"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Yarn",
+        "hindi_name":  "धागा",
+        "hinglish_name":  "Dhaga",
+        "aliases":  [
+                        "Dhaga"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Fabric",
+        "hindi_name":  "कपड़ा",
+        "hinglish_name":  "Kapda",
+        "aliases":  [
+                        "Kapda"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Garments",
+        "hindi_name":  "कपड़े",
+        "hinglish_name":  "Kapde",
+        "aliases":  [
+                        "Kapde"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Footwear",
+        "hindi_name":  "जूते-चप्पल",
+        "hinglish_name":  "Joote-Chappal",
+        "aliases":  [
+                        "Joote-Chappal"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Rubber Goods",
+        "hindi_name":  "रबर का सामान",
+        "hinglish_name":  "Rubber ka Samaan",
+        "aliases":  [
+                        "Rubber ka Samaan"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Iron Goods",
+        "hindi_name":  "लोहे का सामान",
+        "hinglish_name":  "Lohe ka Samaan",
+        "aliases":  [
+                        "Lohe ka Samaan"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Steel Goods",
+        "hindi_name":  "स्टील का सामान",
+        "hinglish_name":  "Steel ka Samaan",
+        "aliases":  [
+                        "Steel ka Samaan"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Hardware",
+        "hindi_name":  "हार्डवेयर सामान",
+        "hinglish_name":  "Hardware Samaan",
+        "aliases":  [
+                        "Hardware Samaan"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Cement",
+        "hindi_name":  "सीमेंट",
+        "hinglish_name":  "Cement",
+        "aliases":  [
+                        "Cement"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Lime",
+        "hindi_name":  "चूना",
+        "hinglish_name":  "Chuna",
+        "aliases":  [
+                        "Chuna"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Sand",
+        "hindi_name":  "रेत",
+        "hinglish_name":  "Ret",
+        "aliases":  [
+                        "Ret"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Gravel",
+        "hindi_name":  "बजरी",
+        "hinglish_name":  "Bajri",
+        "aliases":  [
+                        "Bajri"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Bricks",
+        "hindi_name":  "ईंटें",
+        "hinglish_name":  "Eenten",
+        "aliases":  [
+                        "Eenten"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Tiles",
+        "hindi_name":  "टाइल्स",
+        "hinglish_name":  "Tiles",
+        "aliases":  [
+                        "Tiles"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Pipes",
+        "hindi_name":  "पाइप",
+        "hinglish_name":  "Pipe",
+        "aliases":  [
+                        "Pipe"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Electrical Goods",
+        "hindi_name":  "बिजली का सामान",
+        "hinglish_name":  "Bijli ka Samaan",
+        "aliases":  [
+                        "Bijli ka Samaan"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Machinery",
+        "hindi_name":  "मशीनरी",
+        "hinglish_name":  "Machinery",
+        "aliases":  [
+                        "Machinery"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Machine Parts",
+        "hindi_name":  "मशीन के पुर्जे",
+        "hinglish_name":  "Machine ke Purze",
+        "aliases":  [
+                        "Machine ke Purze"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Spare Parts",
+        "hindi_name":  "स्पेयर पार्ट्स",
+        "hinglish_name":  "Spare Parts",
+        "aliases":  [
+                        "Spare Parts"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Batteries",
+        "hindi_name":  "बैटरियां",
+        "hinglish_name":  "Batteries",
+        "aliases":  [
+                        "Batteries"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Paint",
+        "hindi_name":  "पेंट",
+        "hinglish_name":  "Paint",
+        "aliases":  [
+                        "Paint"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Fertilizer",
+        "hindi_name":  "खाद",
+        "hinglish_name":  "Khaad",
+        "aliases":  [
+                        "Khaad"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Seeds",
+        "hindi_name":  "बीज",
+        "hinglish_name":  "Beej",
+        "aliases":  [
+                        "Beej"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Pesticides",
+        "hindi_name":  "कीटनाशक",
+        "hinglish_name":  "Keetnashak",
+        "aliases":  [
+                        "Keetnashak"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Animal Feed",
+        "hindi_name":  "पशु आहार",
+        "hinglish_name":  "Pashu Aahar",
+        "aliases":  [
+                        "Pashu Aahar"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Empty Bags",
+        "hindi_name":  "खाली बोरे",
+        "hinglish_name":  "Khali Bore",
+        "aliases":  [
+                        "Khali Bore"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Scrap",
+        "hindi_name":  "कबाड़",
+        "hinglish_name":  "Kabaad",
+        "aliases":  [
+                        "Kabaad"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Paper Scrap",
+        "hindi_name":  "रद्दी कागज़",
+        "hinglish_name":  "Raddi Kagaz",
+        "aliases":  [
+                        "Raddi Kagaz",
+                        "raddi",
+                        "Waste Paper"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Cardboard Scrap",
+        "hindi_name":  "गत्ते की रद्दी",
+        "hinglish_name":  "Gatte ki Raddi",
+        "aliases":  [
+                        "Gatte ki Raddi"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Plastic Scrap",
+        "hindi_name":  "प्लास्टिक का कबाड़",
+        "hinglish_name":  "Plastic ka Kabaad",
+        "aliases":  [
+                        "Plastic ka Kabaad"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "Mixed Goods",
+        "hindi_name":  "मिला-जुला माल",
+        "hinglish_name":  "Mila-Jula Maal",
+        "aliases":  [
+                        "Mila-Jula Maal"
+                    ]
+    },
+    {
+        "category":  "Agricultural, Industrial \u0026 Miscellaneous",
+        "english_name":  "General Cargo",
+        "hindi_name":  "सामान्य माल",
+        "hinglish_name":  "Samanya Maal",
+        "aliases":  [
+                        "Samanya Maal"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Lorry Receipt",
+        "hindi_name":  "एलआर रसीद",
+        "hinglish_name":  "LR Rasid",
+        "aliases":  [
+                        "LR Rasid",
+                        "LR",
+                        "bilti",
+                        "Bilty",
+                        "Lorry Receipt"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "LR Number",
+        "hindi_name":  "एलआर नंबर",
+        "hinglish_name":  "LR Number",
+        "aliases":  [
+                        "LR Number",
+                        "Receipt Number",
+                        "Rasid Kramank"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Goods Receipt",
+        "hindi_name":  "माल रसीद",
+        "hinglish_name":  "Maal Rasid",
+        "aliases":  [
+                        "Maal Rasid"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Booking",
+        "hindi_name":  "बुकिंग",
+        "hinglish_name":  "Booking",
+        "aliases":  [
+                        "Booking",
+                        "Book Karna"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Booking Date",
+        "hindi_name":  "बुकिंग तारीख",
+        "hinglish_name":  "Booking Tarikh",
+        "aliases":  [
+                        "Booking Tarikh",
+                        "Booking Date",
+                        "Booking Dinank"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Sender",
+        "hindi_name":  "माल भेजने वाला",
+        "hinglish_name":  "Maal Bhejne Wala",
+        "aliases":  [
+                        "Maal Bhejne Wala"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Receiver",
+        "hindi_name":  "माल प्राप्त करने वाला",
+        "hinglish_name":  "Maal Prapt Karne Wala",
+        "aliases":  [
+                        "Maal Prapt Karne Wala"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Party",
+        "hindi_name":  "पार्टी",
+        "hinglish_name":  "Party",
+        "aliases":  [
+                        "Party"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Transporter",
+        "hindi_name":  "ट्रांसपोर्ट वाला",
+        "hinglish_name":  "Transport Wala",
+        "aliases":  [
+                        "Transport Wala",
+                        "Transporter",
+                        "Transport Company"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Transport Company",
+        "hindi_name":  "ट्रांसपोर्ट कंपनी",
+        "hinglish_name":  "Transport Company",
+        "aliases":  [
+                        "Transport Company"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Truck / Lorry",
+        "hindi_name":  "ट्रक / लॉरी",
+        "hinglish_name":  "Truck / Lorry",
+        "aliases":  [
+                        "Truck / Lorry",
+                        "gaadi",
+                        "Gadi",
+                        "Truck",
+                        "Lorry"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Vehicle Number",
+        "hindi_name":  "गाड़ी नंबर",
+        "hinglish_name":  "Gaadi Number",
+        "aliases":  [
+                        "Gaadi Number",
+                        "Gadi Number",
+                        "Vehicle No",
+                        "Truck Number",
+                        "Vehicle Number"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Driver",
+        "hindi_name":  "ड्राइवर",
+        "hinglish_name":  "Driver",
+        "aliases":  [
+                        "Driver",
+                        "Chalak"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Origin",
+        "hindi_name":  "कहाँ से",
+        "hinglish_name":  "Kahan Se",
+        "aliases":  [
+                        "Kahan Se",
+                        "Origin",
+                        "From"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Destination",
+        "hindi_name":  "कहाँ तक",
+        "hinglish_name":  "Kahan Tak",
+        "aliases":  [
+                        "Kahan Tak",
+                        "Destination",
+                        "To"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "From",
+        "hindi_name":  "कहाँ से",
+        "hinglish_name":  "Kahan Se",
+        "aliases":  [
+                        "Kahan Se"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "To",
+        "hindi_name":  "कहाँ तक",
+        "hinglish_name":  "Kahan Tak",
+        "aliases":  [
+                        "Kahan Tak"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Village",
+        "hindi_name":  "गाँव",
+        "hinglish_name":  "Gaon",
+        "aliases":  [
+                        "Gaon",
+                        "Village"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Town / City",
+        "hindi_name":  "शहर",
+        "hinglish_name":  "Shahar",
+        "aliases":  [
+                        "Shahar",
+                        "Town",
+                        "City"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Taluka",
+        "hindi_name":  "तालुका",
+        "hinglish_name":  "Taluka",
+        "aliases":  [
+                        "Taluka",
+                        "tehsil"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "District",
+        "hindi_name":  "जिला",
+        "hinglish_name":  "Zila",
+        "aliases":  [
+                        "Zila",
+                        "District"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Goods Description",
+        "hindi_name":  "माल का नाम",
+        "hinglish_name":  "Maal ka Naam",
+        "aliases":  [
+                        "Maal ka Naam",
+                        "Goods Name",
+                        "Maal Detail",
+                        "Maal Ka Vivaran",
+                        "Goods Description"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Quantity",
+        "hindi_name":  "नग / मात्रा",
+        "hinglish_name":  "Nag / Matra",
+        "aliases":  [
+                        "Nag / Matra",
+                        "Quantity",
+                        "Qty",
+                        "Nag",
+                        "Matra"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Weight",
+        "hindi_name":  "वजन",
+        "hinglish_name":  "Wajan",
+        "aliases":  [
+                        "Wajan",
+                        "Weight"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Gross Weight",
+        "hindi_name":  "कुल वजन",
+        "hinglish_name":  "Kul Wajan",
+        "aliases":  [
+                        "Kul Wajan",
+                        "Gross Weight"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Net Weight",
+        "hindi_name":  "नेट वजन",
+        "hinglish_name":  "Net Wajan",
+        "aliases":  [
+                        "Net Wajan",
+                        "Net Weight",
+                        "Shuddh Wajan"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Loading",
+        "hindi_name":  "लोडिंग",
+        "hinglish_name":  "Loading",
+        "aliases":  [
+                        "Loading",
+                        "Maal Chadhana",
+                        "Chadhai"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Unloading",
+        "hindi_name":  "अनलोडिंग",
+        "hinglish_name":  "Unloading",
+        "aliases":  [
+                        "Unloading",
+                        "utarai",
+                        "Maal Utarna"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Freight",
+        "hindi_name":  "भाड़ा",
+        "hinglish_name":  "Bhada",
+        "aliases":  [
+                        "Bhada",
+                        "Freight Charges",
+                        "Gaadi Bhada",
+                        "Transport Bhada",
+                        "Freight"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Transport Charges",
+        "hindi_name":  "भाड़ा",
+        "hinglish_name":  "Bhada",
+        "aliases":  [
+                        "Bhada",
+                        "Transport Charges",
+                        "Transport Bhada"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Loading Charges",
+        "hindi_name":  "चढ़ाई",
+        "hinglish_name":  "Chadhai",
+        "aliases":  [
+                        "Chadhai",
+                        "Chadhayi",
+                        "Loading",
+                        "Loading Kharcha",
+                        "Loading Charges"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Hamali Charges",
+        "hindi_name":  "हमाली",
+        "hinglish_name":  "Hamali",
+        "aliases":  [
+                        "Hamali",
+                        "Hamalai"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Unloading Charges",
+        "hindi_name":  "उतराई",
+        "hinglish_name":  "Utarai",
+        "aliases":  [
+                        "Utarai",
+                        "Utarayi",
+                        "Unloading",
+                        "Utarai Kharcha",
+                        "Unloading Charges"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Other Charges",
+        "hindi_name":  "दूसरा खर्च",
+        "hinglish_name":  "Doosra Kharch",
+        "aliases":  [
+                        "Doosra Kharch",
+                        "Other Charges",
+                        "Extra Charges"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Total Charges",
+        "hindi_name":  "टोटल खर्च",
+        "hinglish_name":  "Total Kharch",
+        "aliases":  [
+                        "Total Kharch",
+                        "Total Charges",
+                        "Kul Kharch"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Total Amount",
+        "hindi_name":  "टोटल रकम",
+        "hinglish_name":  "Total Rakam",
+        "aliases":  [
+                        "Total Rakam",
+                        "Total Amount",
+                        "Kul Rashi",
+                        "Total"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Advance",
+        "hindi_name":  "एडवांस",
+        "hinglish_name":  "Advance",
+        "aliases":  [
+                        "Advance",
+                        "peshgi",
+                        "Aage Diye Paise",
+                        "Advance Payment"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Balance Amount",
+        "hindi_name":  "बाकी पैसे",
+        "hinglish_name":  "Baaki Paise",
+        "aliases":  [
+                        "Baaki Paise",
+                        "Baki Rakam",
+                        "Balance",
+                        "Remaining Amount",
+                        "Balance Amount"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Paid",
+        "hindi_name":  "पेमेंट हो गया",
+        "hinglish_name":  "Payment Ho Gaya",
+        "aliases":  [
+                        "Payment Ho Gaya",
+                        "Paid",
+                        "Paise Mil Gaye",
+                        "Payment Done"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "To Pay",
+        "hindi_name":  "पेमेंट बाकी",
+        "hinglish_name":  "Payment Baaki",
+        "aliases":  [
+                        "Payment Baaki",
+                        "To Pay",
+                        "Baki Payment",
+                        "Payable"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Payment Pending",
+        "hindi_name":  "पेमेंट बाकी",
+        "hinglish_name":  "Payment Baaki",
+        "aliases":  [
+                        "Payment Baaki",
+                        "Paise Baaki",
+                        "Baki Payment",
+                        "Udhar",
+                        "Payment Pending"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Delivery",
+        "hindi_name":  "डिलीवरी",
+        "hinglish_name":  "Delivery",
+        "aliases":  [
+                        "Delivery",
+                        "Maal Pahunchana",
+                        "Maal Dena"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Delivery Date",
+        "hindi_name":  "डिलीवरी तारीख",
+        "hinglish_name":  "Delivery Tarikh",
+        "aliases":  [
+                        "Delivery Tarikh",
+                        "Delivery Date",
+                        "Delivery Dinank"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Received in Good Condition",
+        "hindi_name":  "सही सलामत मिला",
+        "hinglish_name":  "Sahi Salamat Mila",
+        "aliases":  [
+                        "Sahi Salamat Mila",
+                        "Sahi Salamat",
+                        "Theek Haalat Mein Mila",
+                        "Good Condition",
+                        "Sahi Maal Mila",
+                        "Received in Good Condition"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Shortage",
+        "hindi_name":  "माल कम निकला",
+        "hinglish_name":  "Maal Kam Nikla",
+        "aliases":  [
+                        "Maal Kam Nikla",
+                        "Maal Kam",
+                        "Maal Ki Kami",
+                        "Kam Maal",
+                        "Short Maal",
+                        "Quantity Short",
+                        "Shortage"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Damaged Goods",
+        "hindi_name":  "डैमेज माल",
+        "hinglish_name":  "Damage Maal",
+        "aliases":  [
+                        "Damage Maal",
+                        "Damaged Maal",
+                        "Damaged Goods",
+                        "Kharab Maal",
+                        "Toota Maal"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Remarks",
+        "hindi_name":  "रिमार्क",
+        "hinglish_name":  "Remark",
+        "aliases":  [
+                        "Remark",
+                        "shera",
+                        "Remarks",
+                        "Note",
+                        "Shara",
+                        "Tippani"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Signature",
+        "hindi_name":  "साइन",
+        "hinglish_name":  "Sign",
+        "aliases":  [
+                        "Sign",
+                        "Signature",
+                        "Hastakshar"
+                    ]
+    },
+    {
+        "category":  "Transport \u0026 LR Terms",
+        "english_name":  "Receiver Signature",
+        "hindi_name":  "माल लेने वाले के साइन",
+        "hinglish_name":  "Maal Lene Wale ke Sign",
+        "aliases":  [
+                        "Maal Lene Wale ke Sign",
+                        "Receiver Signature",
+                        "Receiver Sign"
+                    ]
+    }
+]

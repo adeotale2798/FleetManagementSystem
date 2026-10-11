@@ -13,6 +13,7 @@ import { DATA_CHANGE_EVENT } from "../lib/realtime";
 import { dmy, dmyDateTime, money0 } from "../lib/format";
 import { useMaster } from "../lib/hooks";
 import { DEFAULT_BOOKING_GOODS } from "../lib/bookingGoods";
+import transportHindiDictionary from "../lib/transportHindiDictionary.json";
 
 const field = "fld w-full";
 const siteIdentityKey = (value) => value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
@@ -23,6 +24,39 @@ const emptyReceiptBranding = () => ({
   company_name: "", legal_line: "", address: "", logo_url: "", terms: "", footer: "",
   contacts: Array.from({ length: 3 }, emptyReceiptContact),
 });
+const normalizeHindiDictionary = (entries) => (
+  Array.isArray(entries)
+    ? entries.filter((entry) => typeof entry?.english === "string"
+      && entry.english.trim() && typeof entry?.hindi === "string" && entry.hindi.trim())
+      .map((entry) => ({ english: entry.english.trim(), hindi: entry.hindi.trim() }))
+    : []
+);
+const normalizeTransportHindiDictionary = (overrides) => {
+  const overrideMap = new Map((Array.isArray(overrides) ? overrides : [])
+    .filter((entry) => typeof entry?.key === "string")
+    .map((entry) => [entry.key.toLocaleLowerCase(), entry]));
+  return transportHindiDictionary.map((entry) => {
+    const override = overrideMap.get(entry.english_name.toLocaleLowerCase());
+    return {
+      ...entry,
+      ...override,
+      aliases: Array.isArray(override?.aliases) ? override.aliases : entry.aliases,
+      key: entry.english_name,
+    };
+  });
+};
+const transportHindiDictionaryOverrides = (entries) => entries.filter((entry) => {
+  const original = transportHindiDictionary.find((item) =>
+    item.english_name.toLocaleLowerCase() === entry.key.toLocaleLowerCase());
+  return original && (
+    entry.english_name !== original.english_name
+    || entry.hindi_name !== original.hindi_name
+    || entry.hinglish_name !== original.hinglish_name
+    || JSON.stringify(entry.aliases) !== JSON.stringify(original.aliases)
+  );
+}).map(({ key, category, english_name, hindi_name, hinglish_name, aliases }) => ({
+  key, category, english_name, hindi_name, hinglish_name, aliases,
+}));
 const receiptBrandingFor = (site) => {
   const configured = site?.config?.receipt_branding || {};
   return {
@@ -291,6 +325,10 @@ export default function SiteConsole({ user, adminOnly = false }) {
   const [receiptLogoFailed, setReceiptLogoFailed] = useState(false);
   const [goodsSuggestions, setGoodsSuggestions] = useState(DEFAULT_BOOKING_GOODS);
   const [goodsSuggestionDraft, setGoodsSuggestionDraft] = useState("");
+  const [hindiDictionary, setHindiDictionary] = useState([]);
+  const [hindiDictionaryDraft, setHindiDictionaryDraft] = useState({ english: "", hindi: "" });
+  const [transportDictionary, setTransportDictionary] = useState(() => normalizeTransportHindiDictionary());
+  const [transportDictionarySearch, setTransportDictionarySearch] = useState("");
   const [categoryForm, setCategoryForm] = useState({ goods: "", containers: "" });
   const [migration, setMigration] = useState(null);
   const [tripForm, setTripForm] = useState({ truck_no: "", driver_name: "", vehicle_id: "", driver_id: "" });
@@ -424,6 +462,10 @@ export default function SiteConsole({ user, adminOnly = false }) {
         setReceiptLogoFailed(false);
         setGoodsSuggestions(Array.isArray(selected.config?.goods_suggestions)
           ? selected.config.goods_suggestions : DEFAULT_BOOKING_GOODS);
+        setHindiDictionary(normalizeHindiDictionary(selected.config?.hindi_dictionary));
+        setTransportDictionary(normalizeTransportHindiDictionary(
+          selected.config?.transport_hindi_dictionary_overrides,
+        ));
         if (!preserveDrafts) siteEditDirtyFields.current = {};
         else if (Object.keys(siteEditDirtyFields.current).length) {
           setMessage("Latest data loaded. Your unsaved site edits were kept; review before saving.");
@@ -501,6 +543,10 @@ export default function SiteConsole({ user, adminOnly = false }) {
       setReceiptLogoFailed(false);
       setGoodsSuggestions(Array.isArray(selected.config?.goods_suggestions)
         ? selected.config.goods_suggestions : DEFAULT_BOOKING_GOODS);
+      setHindiDictionary(normalizeHindiDictionary(selected.config?.hindi_dictionary));
+      setTransportDictionary(normalizeTransportHindiDictionary(
+        selected.config?.transport_hindi_dictionary_overrides,
+      ));
     }
     if (adminOnly) return;
     await loadSiteWorkspace(id);
@@ -564,6 +610,8 @@ export default function SiteConsole({ user, adminOnly = false }) {
         config: {
           ...(selected.config || {}),
           goods_suggestions: goodsSuggestions,
+          hindi_dictionary: hindiDictionary,
+          transport_hindi_dictionary_overrides: transportHindiDictionaryOverrides(transportDictionary),
           receipt_controls: {
             hindi_conversion_enabled: receiptControls.hindi_conversion_enabled,
             receipt_language: receiptControls.receipt_language,
@@ -614,6 +662,28 @@ export default function SiteConsole({ user, adminOnly = false }) {
     if (!value || goodsSuggestions.some((item) => item.toLocaleLowerCase() === value.toLocaleLowerCase())) return;
     setGoodsSuggestions((current) => [...current, value]);
     setGoodsSuggestionDraft("");
+  };
+
+  const addHindiDictionaryEntry = (event) => {
+    event.preventDefault();
+    const english = hindiDictionaryDraft.english.trim();
+    const hindi = hindiDictionaryDraft.hindi.trim();
+    if (!english || !hindi || hindiDictionary.some((entry) =>
+      entry.english.toLocaleLowerCase() === english.toLocaleLowerCase())) return;
+    setHindiDictionary((current) => [...current, { english, hindi }]);
+    setHindiDictionaryDraft({ english: "", hindi: "" });
+  };
+
+  const updateTransportDictionaryEntry = (key, fieldName, value) => {
+    setTransportDictionary((current) => current.map((entry) => {
+      if (entry.key !== key) return entry;
+      return {
+        ...entry,
+        [fieldName]: fieldName === "aliases"
+          ? value.split(";").map((alias) => alias.trim()).filter(Boolean)
+          : value,
+      };
+    }));
   };
 
   const previewMigration = async () => {
@@ -1172,6 +1242,121 @@ export default function SiteConsole({ user, adminOnly = false }) {
                   </span>
                 </li>)}
               </ul> : <p className="text-sm text-muted">No suggestions. Staff can still enter goods descriptions manually.</p>}
+            </section>
+            <section className="booking-settings-group space-y-3" data-testid="hindi-dictionary-settings">
+              <div>
+                <h3 className="font-semibold">5. English to Hindi word translations</h3>
+                <p className="mt-1 text-sm text-muted">
+                  Browse the transport dictionary by category. Staff can search using the English term or Hinglish spelling; receipts use the Hindi term. Edit entries below and save booking settings to apply changes to this site.
+                </p>
+              </div>
+              <label className="block max-w-lg text-sm">Find a dictionary entry
+                <input className={field} aria-label="Search transport dictionary"
+                  placeholder="Search English, Hindi, Hinglish, or aliases"
+                  value={transportDictionarySearch}
+                  onChange={(event) => setTransportDictionarySearch(event.target.value)} />
+              </label>
+              <div className="space-y-2" data-testid="transport-hindi-dictionary">
+                {Array.from(new Set(transportDictionary.map((entry) => entry.category))).map((category) => {
+                  const query = transportDictionarySearch.trim().toLocaleLowerCase();
+                  const entries = transportDictionary.filter((entry) => entry.category === category
+                    && (!query || [
+                      entry.english_name, entry.hindi_name, entry.hinglish_name, ...entry.aliases,
+                    ].some((value) => String(value || "").toLocaleLowerCase().includes(query))));
+                  if (query && entries.length === 0) return null;
+                  return <details key={category} className="rounded-lg border border-line bg-white">
+                    <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-3 px-3 py-2 font-medium">
+                      <span>{category}</span>
+                      <span className="text-xs text-muted">{entries.length} entries</span>
+                    </summary>
+                    <div className="overflow-x-auto border-t border-line">
+                      <table className="w-full min-w-[900px] border-collapse text-left text-sm">
+                        <thead className="bg-canvas text-xs text-muted">
+                          <tr>
+                            <th className="p-2">English term</th>
+                            <th className="p-2">Hindi translation</th>
+                            <th className="p-2">Hinglish search term</th>
+                            <th className="p-2">Other aliases (separate with ;)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {entries.map((entry) => <tr key={entry.key} className="border-t border-line">
+                            <td className="p-2">
+                              <input className={field} aria-label={`English dictionary term ${entry.key}`}
+                                maxLength={100} value={entry.english_name}
+                                onChange={(event) => updateTransportDictionaryEntry(
+                                  entry.key, "english_name", event.target.value,
+                                )} />
+                            </td>
+                            <td className="p-2">
+                              <input className={field} aria-label={`Hindi dictionary term ${entry.key}`}
+                                maxLength={160} value={entry.hindi_name}
+                                onChange={(event) => updateTransportDictionaryEntry(
+                                  entry.key, "hindi_name", event.target.value,
+                                )} />
+                            </td>
+                            <td className="p-2">
+                              <input className={field} aria-label={`Hinglish dictionary term ${entry.key}`}
+                                maxLength={100} value={entry.hinglish_name}
+                                onChange={(event) => updateTransportDictionaryEntry(
+                                  entry.key, "hinglish_name", event.target.value,
+                                )} />
+                            </td>
+                            <td className="p-2">
+                              <input className={field} aria-label={`Aliases for dictionary term ${entry.key}`}
+                                maxLength={500} value={entry.aliases.join("; ")}
+                                onChange={(event) => updateTransportDictionaryEntry(
+                                  entry.key, "aliases", event.target.value,
+                                )} />
+                            </td>
+                          </tr>)}
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>;
+                })}
+                {transportDictionarySearch.trim() && !transportDictionary.some((entry) => [
+                  entry.english_name, entry.hindi_name, entry.hinglish_name, ...entry.aliases,
+                ].some((value) => String(value || "")
+                  .toLocaleLowerCase().includes(transportDictionarySearch.trim().toLocaleLowerCase())))
+                  && <p className="rounded-lg border border-dashed border-line p-3 text-sm text-muted">
+                    No matching transport dictionary entries.
+                  </p>}
+              </div>
+              <div className="grid items-end gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                <label className="text-sm">English word or phrase
+                  <input className={field} aria-label="English word to translate" maxLength={80}
+                    value={hindiDictionaryDraft.english}
+                    onChange={(event) => setHindiDictionaryDraft((current) => ({
+                      ...current, english: event.target.value,
+                    }))} />
+                </label>
+                <label className="text-sm">Hindi translation
+                  <input className={field} aria-label="Hindi translation" maxLength={120}
+                    value={hindiDictionaryDraft.hindi}
+                    onChange={(event) => setHindiDictionaryDraft((current) => ({
+                      ...current, hindi: event.target.value,
+                    }))} />
+                </label>
+                <Btn type="button" onClick={addHindiDictionaryEntry} disabled={!hindiDictionaryDraft.english.trim()
+                  || !hindiDictionaryDraft.hindi.trim()
+                  || hindiDictionary.some((entry) => entry.english.toLocaleLowerCase()
+                    === hindiDictionaryDraft.english.trim().toLocaleLowerCase())}>
+                  Add translation
+                </Btn>
+              </div>
+              {hindiDictionary.length ? <ul className="divide-y divide-line rounded-lg border border-line">
+                {hindiDictionary.map((entry, index) => <li key={`${entry.english}-${index}`}
+                  className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                  <span><strong>{entry.english}</strong><span className="mx-2 text-muted">→</span>{entry.hindi}</span>
+                  <button type="button" className="rounded-lg p-2 text-muted hover:bg-red-50 hover:text-red-700"
+                    aria-label={`Remove Hindi translation for ${entry.english}`}
+                    onClick={() => setHindiDictionary((current) =>
+                      current.filter((_row, rowIndex) => rowIndex !== index))}>
+                    <X size={16} aria-hidden="true" />
+                  </button>
+                </li>)}
+              </ul> : <p className="text-sm text-muted">No custom translations yet.</p>}
             </section>
             <Btn type="submit">Save booking settings</Btn>
           </Card>
