@@ -1,4 +1,4 @@
-# Fleet Manager v1.18.1
+# Fleet Manager v1.25.1
 
 Transport office software for one or many logistics businesses.
 
@@ -76,7 +76,7 @@ After changing frontend env, restart `npm start`.
 
 ---
 
-## 4. Run locally (two terminals)
+## 4. Run locally (three terminals)
 
 ### Terminal A — MongoDB
 
@@ -92,12 +92,26 @@ sudo systemctl start mongod
 
 ### Terminal B — backend
 
+Run the backend separately from the frontend and keep this terminal open while using the app. The backend reads `backend/.env`, copied from `backend/.env.example` in Section 3.
+
+**Windows PowerShell**
+
+```powershell
+cd backend
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m uvicorn server:app --reload --host 0.0.0.0 --port 8000
+```
+
+**macOS / Linux**
+
 ```bash
 cd backend
 python3 -m venv .venv
-source .venv/Scripts/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn server:app --reload --host 0.0.0.0 --port 8000
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m uvicorn server:app --reload --host 0.0.0.0 --port 8000
 ```
 
 On start the backend **creates / refreshes**:
@@ -111,8 +125,11 @@ API prefix: `http://localhost:8000/api/...`
 
 ### Terminal C — frontend
 
+This starts only the browser app; it does not start the backend. Keep Terminal B running. The frontend reads `frontend/.env`, copied from `frontend/.env.example` in Section 3; its default `REACT_APP_BACKEND_URL` points to `http://localhost:8000`.
+
 ```bash
 cd frontend
+# Install dependencies once, then use `npm start` on later runs.
 npm install
 npm start
 ```
@@ -149,6 +166,8 @@ Code: `backend/auth.py` (seed + `require_super`), `backend/server.py` (`/api/pla
    - **Suspend / activate** a licence (suspended owners cannot sign in)
    - **Reset** that business owner’s password
    - **Customise** modules (Trips, Vehicles, Finance, GPS, charts, …) for that business only
+   - Select a client and use **Booking setup** to manage its sites, receipt setup and site managers, alongside the access already granted to the client
+   - Select **Open client app** to enter a confirmed, full-access support session, use the customer's normal Booking and Industrial screens, and exit back to Platform Control
 
 Platform APIs (Bearer JWT, role must be `superadmin`):
 
@@ -159,8 +178,14 @@ Platform APIs (Bearer JWT, role must be `superadmin`):
 | POST | `/api/platform/tenants` | Create licence + owner user |
 | PUT | `/api/platform/tenants/{id}` | Status, plan, features, expiry |
 | POST | `/api/platform/tenants/{id}/reset-password` | New owner password (min 6 chars) |
+| POST | `/api/platform/tenants/{id}/support-session` | Start the selected customer's two-hour support session |
+| POST | `/api/platform/support-session/end` | Record and revoke the current support session |
 
-Business-owner tokens get **403** on these routes.
+### Full client support mode
+
+The support session is scoped to the selected customer, lasts up to two hours, and is separately revocable. It temporarily allows the platform owner to view and edit the client's app even when its subscription is suspended or excludes a module; it does **not** change the client's saved plan or admin grants. The support token is kept in the current browser tab only, the normal platform login remains available for exit, and platform-administration APIs are blocked while support mode is active. Session start/end and each successful support-mode write appear in that customer's Change history. A support banner remains visible in the client app; choose **Exit client** to revoke the session and return to Platform Control.
+
+Customer support tokens are tenant-bound, revocable, and cannot call platform-administration APIs. Ordinary business-owner tokens do not receive the platform support privilege. Platform summary reads tenant databases concurrently with a fixed cap, preserving the response fields while avoiding serial per-customer loading.
 
 ---
 

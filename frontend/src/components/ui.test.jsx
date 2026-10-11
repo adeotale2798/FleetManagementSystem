@@ -1,7 +1,8 @@
 import React from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { scheduleMutationSuccess, toast, ToastHost } from "./ui";
+import { render, screen } from "@testing-library/react";
+import { Modal, scheduleMutationSuccess, toast, ToastHost } from "./ui";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -15,6 +16,26 @@ describe("global toast host", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     act(() => root.render(<ToastHost />));
+  });
+
+  describe("modal layout", () => {
+    it("renders outside transformed page containers and exposes a scrollable dialog", () => {
+      render(
+        <main className="page-enter">
+          <Modal open onClose={jest.fn()} title="Edit subscription" footer={<button>Save</button>}>
+            <div>Subscription form</div>
+          </Modal>
+        </main>,
+      );
+
+      const dialog = screen.getByRole("dialog", { name: "Edit subscription" });
+      const overlay = screen.getByTestId("modal-overlay");
+      const content = screen.getByTestId("modal-content");
+      expect(overlay.parentElement).toBe(document.body);
+      expect(dialog.closest("main")).toBeNull();
+      expect(content.className).toContain("overflow-y-auto");
+      expect(screen.getByRole("button", { name: "Close dialog" })).not.toBeNull();
+    });
   });
 
   afterEach(() => {

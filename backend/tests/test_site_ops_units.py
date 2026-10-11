@@ -46,6 +46,9 @@ def test_creation_metadata_records_login_identity_and_role():
     assert site_ops._entry_by({
         "created_by_name": "Owner Name", "created_by_role": "owner",
     }) == "A-Owner"
+    assert site_ops._entry_by({
+        "created_by_name": "Platform Owner", "created_by_role": "platform_support",
+    }) == "P-Platform"
     assert site_ops._ledger_hindi_text("AUTO") == "ऑटो"
     assert site_ops._ledger_hindi_text("Cement bag") == "सीमेंट बोरा"
     assert site_ops._ledger_hindi_text("gadi bhada") == "गाड़ी भाड़ा"
@@ -1074,6 +1077,106 @@ def test_manager_register_never_returns_password_fields(monkeypatch):
         "site_ids": ["site-1"], "site_permissions": {"site-1": ["trips:read"]},
     }]
     assert "password" not in result[0]
+
+
+def test_platform_booking_support_remains_available_when_customer_has_settings_access(monkeypatch):
+    tenant = {"_id": "tenant-1", "subscription_access": None, "features": {}}
+
+    class Tenants:
+        async def find_one(self, query):
+            assert query == {"_id": "tenant-1"}
+            return tenant
+
+    tenant_switches = []
+    monkeypatch.setattr(site_ops, "platform_db", SimpleNamespace(
+        tenants=Tenants(),
+    ))
+    monkeypatch.setattr(site_ops, "set_tenant", tenant_switches.append)
+
+    support_user = asyncio.run(site_ops._platform_booking_support_user(
+        "tenant-1", {"username": "platform-owner", "role": "superadmin"},
+    ))
+
+    assert tenant_switches == ["tenant-1"]
+    assert support_user["role"] == "superadmin"
+    assert support_user["actor_role"] == "platform_support"
+    assert support_user["_platform_support"] is True
+
+
+def test_platform_booking_support_is_tenant_scoped_when_subscription_blocks_owner_access(
+    monkeypatch,
+):
+    tenant = {
+        "_id": "tenant-1",
+        "subscription_access": {"booking_settings": False},
+        "features": {},
+    }
+
+    class Users:
+        def find(self, _query, _projection):
+            class Cursor:
+                async def to_list(self, _limit):
+                    return [{
+                        "_id": "owner-1",
+                        "admin_access": {"booking_settings": True},
+                    }]
+
+            return Cursor()
+
+    class Tenants:
+        async def find_one(self, _query):
+            return tenant
+
+    tenant_switches = []
+    monkeypatch.setattr(site_ops, "platform_db", SimpleNamespace(
+        tenants=Tenants(), users=Users(),
+    ))
+    monkeypatch.setattr(site_ops, "set_tenant", tenant_switches.append)
+
+    support_user = asyncio.run(site_ops._platform_booking_support_user(
+        "tenant-1",
+        {"username": "platform-owner", "name": "Platform Owner", "role": "superadmin"},
+    ))
+
+    assert tenant_switches == ["tenant-1"]
+    assert support_user == {
+        "_id": "platform-owner",
+        "username": "platform-owner",
+        "name": "Platform Owner",
+        "role": "superadmin",
+        "actor_role": "platform_support",
+        "tenant_id": "tenant-1",
+        "_platform_support": True,
+    }
+
+
+def test_platform_booking_site_listing_delegates_only_with_support_identity(monkeypatch):
+    calls = []
+    support_user = {
+        "username": "platform-owner", "tenant_id": "tenant-1",
+        "role": "superadmin", "_platform_support": True,
+    }
+
+    async def support_identity(tenant_id, platform_user):
+        calls.append(("support", tenant_id, platform_user["username"]))
+        return support_user
+
+    async def list_sites(u):
+        calls.append(("list", u))
+        return [{"id": "site-1"}]
+
+    monkeypatch.setattr(site_ops, "_platform_booking_support_user", support_identity)
+    monkeypatch.setattr(site_ops, "list_sites", list_sites)
+
+    result = asyncio.run(site_ops.platform_booking_sites(
+        "tenant-1", {"username": "platform-owner"},
+    ))
+
+    assert result == [{"id": "site-1"}]
+    assert calls == [
+        ("support", "tenant-1", "platform-owner"),
+        ("list", support_user),
+    ]
 
 
 def test_activity_by_date_combines_trip_and_lr_counts_and_fills_gaps():

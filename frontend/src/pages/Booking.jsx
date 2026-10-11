@@ -884,14 +884,31 @@ function ReceiptForm({
           </p>
         </section>
         <div className="receipt-form-actions sticky bottom-0 z-10 -mx-4 flex flex-col gap-2 border-t border-line bg-white/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_20px_rgba(16,24,40,0.08)] backdrop-blur sm:static sm:mx-0 sm:flex-row sm:gap-3 sm:border-0 sm:bg-transparent sm:p-0 sm:pt-0 sm:shadow-none sm:backdrop-blur-none">
-          <Btn type="submit" disabled={saving} className="min-h-12 flex-1 text-base">
-            {saving ? t("Saving…", "सेव हो रहा है…") : receipt ? t("Save changes", "बदलाव सेव करें") : t("Save receipt", "रसीद सेव करें")}
+          <Btn type="submit" disabled={saving}
+            aria-label={saving ? t("Saving…", "सेव हो रहा है…")
+              : receipt ? t("Save changes", "बदलाव सेव करें") : t("Save receipt", "रसीद सेव करें")}
+            className="receipt-save-action min-h-12 flex-1 text-base">
+            <Check size={17} />
+            <span className="receipt-action-label-full">
+              {saving ? t("Saving…", "सेव हो रहा है…") : receipt ? t("Save changes", "बदलाव सेव करें") : t("Save receipt", "रसीद सेव करें")}
+            </span>
+            <span className="receipt-action-label-mobile">{saving ? t("Saving", "सेव…") : t("Save", "सेव")}</span>
           </Btn>
-          <button type="button" disabled={saving} onClick={saveAndPrint} className="btn-s min-h-12 flex-1 text-base">
-            <Printer size={18} /> {t("Print paper (saves receipt first)", "प्रिंट निकालें (पहले रसीद सेव होगी)")}
+          <button type="button" disabled={saving} onClick={saveAndPrint}
+            aria-label={t("Print paper (saves receipt first)", "प्रिंट निकालें (पहले रसीद सेव होगी)")}
+            className="receipt-print-action btn-s min-h-12 flex-1 text-base">
+            <Printer size={18} />
+            <span className="receipt-action-label-full">{t("Print paper (saves receipt first)", "प्रिंट निकालें (पहले रसीद सेव होगी)")}</span>
+            <span className="receipt-action-label-mobile">{t("Print", "प्रिंट")}</span>
           </button>
-          <button type="button" disabled={saving} onClick={onCancel} className="btn-s min-h-12 flex-1 text-base">
-            {receipt ? t("Cancel editing", "बदलाव रद्द करें") : t("Cancel receipt", "रसीद रद्द करें")}
+          <button type="button" disabled={saving} onClick={onCancel}
+            aria-label={receipt ? t("Cancel editing", "बदलाव रद्द करें") : t("Cancel receipt", "रसीद रद्द करें")}
+            className="receipt-cancel-action btn-s min-h-12 flex-1 text-base">
+            <X size={17} />
+            <span className="receipt-action-label-full">
+              {receipt ? t("Cancel editing", "बदलाव रद्द करें") : t("Cancel receipt", "रसीद रद्द करें")}
+            </span>
+            <span className="receipt-action-label-mobile">{t("Cancel", "रद्द करें")}</span>
           </button>
         </div>
       </form>

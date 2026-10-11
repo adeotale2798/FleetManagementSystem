@@ -10,9 +10,10 @@ import {
 } from "lucide-react";
 import { useFetch } from "../lib/hooks";
 import { money, money0, dmy } from "../lib/format";
+import { hasAdminAccess } from "../lib/adminAccess";
 import { Badge, Btn, Card, DataTable, EmptyState, ErrorState, Loader, PageHead, Stat } from "../components/ui";
 
-export default function Dashboard() {
+export default function Dashboard({ user }) {
   const { data: d, loading, error, reload } = useFetch("/dashboard");
   const mon = useFetch("/dashboard/monthly", { months: 6 });
   const nav = useNavigate();
@@ -20,14 +21,21 @@ export default function Dashboard() {
   if (loading && !d) return <Loader label="Loading your business…" />;
   if (error) return <ErrorState text={error} onRetry={reload} />;
 
-  const m = d.money, a = d.alerts, c = d.collections;
+  const m = d.money || {}, a = d.alerts, c = d.collections;
+  const canTrips = hasAdminAccess(user, "industrial_trips");
+  const canLrs = hasAdminAccess(user, "industrial_lrs");
+  const canVehicles = hasAdminAccess(user, "industrial_vehicles");
+  const canTeam = hasAdminAccess(user, "industrial_team");
+  const canFinance = hasAdminAccess(user, "industrial_finance");
   const alerts = [
-    { n: a.pending_payments, label: "Pending Payments", to: "/finance?tab=receivables", icon: Receipt, bad: false },
-    { n: a.overdue, label: "Overdue Payments", to: "/finance?tab=receivables", icon: AlertTriangle, bad: true },
-    { n: a.vehicle_docs, label: "Vehicle Documents Expiring", to: "/vehicles?tab=documents", icon: FileText, bad: true },
-    { n: a.driver_licence, label: "Driver Licence Expiring", to: "/team", icon: IdCard, bad: true },
-    { n: money0(a.driver_advances), label: "Driver Advances Outstanding", to: "/team", icon: HandCoins, bad: false },
-    { n: money0(a.employee_advances), label: "Team Advances Outstanding", to: "/team?tab=team", icon: HandCoins, bad: false },
+    ...(canFinance ? [
+      { n: a.pending_payments, label: "Pending Payments", to: "/finance?tab=receivables", icon: Receipt, bad: false },
+      { n: a.overdue, label: "Overdue Payments", to: "/finance?tab=receivables", icon: AlertTriangle, bad: true },
+      { n: money0(a.driver_advances), label: "Driver Advances Outstanding", to: "/team", icon: HandCoins, bad: false },
+      { n: money0(a.employee_advances), label: "Team Advances Outstanding", to: "/team?tab=team", icon: HandCoins, bad: false },
+    ] : []),
+    ...(canVehicles ? [{ n: a.vehicle_docs, label: "Vehicle Documents Expiring", to: "/vehicles?tab=documents", icon: FileText, bad: true }] : []),
+    ...(canTeam ? [{ n: a.driver_licence, label: "Driver Licence Expiring", to: "/team", icon: IdCard, bad: true }] : []),
   ];
 
   return (
@@ -35,17 +43,17 @@ export default function Dashboard() {
       <PageHead title="Business Dashboard"
         subtitle={`Today · ${dmy(new Date().toISOString())} — everything below is calculated from your entries`} />
 
-      <Section title="Trips today">
+      {(canTrips || canVehicles) && <Section title="Trips today">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-          <Stat testid="stat-trips-today" label="Today's Trips" value={d.trips.today} icon={CalendarClock} onClick={() => nav("/trips")} />
-          <Stat testid="stat-active-trips" label="Active Trips" value={d.trips.active} icon={Truck} onClick={() => nav("/trips?status=In Transit")} />
-          <Stat testid="stat-completed" label="Completed Today" value={d.trips.completed_today} icon={Truck} onClick={() => nav("/trips?status=Completed")} />
-          <Stat testid="stat-veh-available" label="Available Vehicles" value={d.vehicles.available} icon={Truck} onClick={() => nav("/vehicles")} />
-          <Stat testid="stat-veh-ontrip" label="Vehicles on Trip" value={d.vehicles.on_trip} icon={Truck} onClick={() => nav("/vehicles")} />
+          {canTrips && <><Stat testid="stat-trips-today" label="Today's Trips" value={d.trips.today} icon={CalendarClock} onClick={() => nav("/trips")} />
+            <Stat testid="stat-active-trips" label="Active Trips" value={d.trips.active} icon={Truck} onClick={() => nav("/trips?status=In Transit")} />
+            <Stat testid="stat-completed" label="Completed Today" value={d.trips.completed_today} icon={Truck} onClick={() => nav("/trips?status=Completed")} /></>}
+          {canVehicles && <><Stat testid="stat-veh-available" label="Available Vehicles" value={d.vehicles.available} icon={Truck} onClick={() => nav("/vehicles")} />
+            <Stat testid="stat-veh-ontrip" label="Vehicles on Trip" value={d.vehicles.on_trip} icon={Truck} onClick={() => nav("/vehicles")} /></>}
         </div>
-      </Section>
+      </Section>}
 
-      <Section title="Money">
+      {canFinance && <Section title="Money">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
           <Stat testid="stat-to-receive" label="Money to Receive" value={money0(m.to_receive)} icon={ArrowDownRight}
             tone="text-brand-600" onClick={() => nav("/finance?tab=receivables")} sub="Tap to see parties" />
@@ -58,9 +66,9 @@ export default function Dashboard() {
           <Stat testid="stat-expenses-today" label="Today's Expenses" value={money0(m.expenses_today)} icon={Receipt}
             onClick={() => nav("/finance?tab=expenses")} />
         </div>
-      </Section>
+      </Section>}
 
-      <Section title="Collections & cash">
+      {canFinance && <Section title="Collections & cash">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
           <Stat testid="stat-collection-today" label="Today's Collection" value={money0(c.today)} icon={Banknote}
             onClick={() => nav("/finance?tab=collections")} />
@@ -71,19 +79,19 @@ export default function Dashboard() {
           <Stat label="Cash in Hand" value={money0(m.cash)} icon={Wallet} tone={m.cash < 0 ? "text-red-600" : ""} onClick={() => nav("/finance?tab=cash")} />
           <Stat label="Bank Balance" value={money0(m.bank)} icon={Wallet} tone={m.bank < 0 ? "text-red-600" : ""} onClick={() => nav("/finance?tab=cash")} />
         </div>
-      </Section>
+      </Section>}
 
-      <Section title="People & LR">
+      {(canTeam || canLrs || canFinance) && <Section title="People & LR">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-          <Stat label="Total Drivers" value={d.people.drivers} icon={Users} onClick={() => nav("/team")} />
-          <Stat label="Team Members" value={d.people.team} icon={Users} onClick={() => nav("/team?tab=team")} />
-          <Stat label="Total LRs" value={d.total_lrs} icon={FileText} onClick={() => nav("/trips?tab=lrs")} />
-          <Stat label="Unpaid LRs" value={d.pending_lrs} icon={FileText} onClick={() => nav("/trips?tab=lrs")} />
-          <Stat label="Diesel Today" value={money0(m.fuel_today)} icon={Fuel} onClick={() => nav("/finance?tab=fuel")} />
+          {canTeam && <><Stat label="Total Drivers" value={d.people.drivers} icon={Users} onClick={() => nav("/team")} />
+            <Stat label="Team Members" value={d.people.team} icon={Users} onClick={() => nav("/team?tab=team")} /></>}
+          {canLrs && <><Stat label="Total LRs" value={d.total_lrs} icon={FileText} onClick={() => nav("/trips?tab=lrs")} />
+            <Stat label="Unpaid LRs" value={d.pending_lrs} icon={FileText} onClick={() => nav("/trips?tab=lrs")} /></>}
+          {canFinance && <Stat label="Diesel Today" value={money0(m.fuel_today)} icon={Fuel} onClick={() => nav("/finance?tab=fuel")} />}
         </div>
-      </Section>
+      </Section>}
 
-      <Section title="Needs your attention">
+      {alerts.length > 0 && <Section title="Needs your attention">
         <div className="grid gap-3 md:grid-cols-3">
           {alerts.map((al) => (
             <button key={al.label} onClick={() => nav(al.to)} data-testid={`alert-${al.label.toLowerCase().replace(/[^a-z]+/g, "-")}`}
@@ -98,19 +106,20 @@ export default function Dashboard() {
             </button>
           ))}
         </div>
-      </Section>
+      </Section>}
 
-      {mon.data && <MonthlyCharts m={mon.data} nav={nav} />}
+      {mon.data && (canFinance || canTrips || canLrs) && <MonthlyCharts m={mon.data} nav={nav}
+        canFinance={canFinance} canTrips={canTrips} canLrs={canLrs} />}
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Panel title="Today's Trips" action={() => nav("/trips")}>
+        {canTrips && <Panel title="Today's Trips" action={() => nav("/trips")}>
           <DataTable testid="dash-trips"
             columns={[
               { key: "trip_no", label: "Trip", strong: true },
               { key: "route", label: "Route", render: (r) => `${r.from_name} → ${r.to_name}` },
               { key: "vehicle_no", label: "Vehicle" },
               { key: "driver_name", label: "Driver" },
-              { key: "trip_amount", label: "Amount", type: "money", right: true },
+              ...(canFinance ? [{ key: "trip_amount", label: "Amount", type: "money", right: true }] : []),
               { key: "status", label: "Status", type: "badge" },
             ]}
             rows={d.lists.trips_today} onRowClick={(r) => nav(`/trips/${r.id}`)}
@@ -121,12 +130,13 @@ export default function Dashboard() {
                   <span className="font-semibold">{r.trip_no}</span><Badge>{r.status}</Badge>
                 </div>
                 <p className="mt-1 text-[13.5px] text-muted">{r.from_name} → {r.to_name}</p>
-                <p className="mt-1 text-[13px] text-muted">{r.vehicle_no} · {r.driver_name || "No driver"} · <span className="num">{money(r.trip_amount)}</span></p>
+                <p className="mt-1 text-[13px] text-muted">{r.vehicle_no} · {r.driver_name || "No driver"}
+                  {canFinance && <> · <span className="num">{money(r.trip_amount)}</span></>}</p>
               </div>
             )} />
-        </Panel>
+        </Panel>}
 
-        <Panel title="Pending Receivables" action={() => nav("/finance?tab=receivables")}>
+        {canFinance && <Panel title="Pending Receivables" action={() => nav("/finance?tab=receivables")}>
           <DataTable testid="dash-receivables"
             columns={[
               { key: "party", label: "Party", strong: true },
@@ -142,9 +152,9 @@ export default function Dashboard() {
                 <div className="text-right"><p className="num font-semibold">{money(r.outstanding)}</p><Badge>{r.status}</Badge></div>
               </div>
             )} />
-        </Panel>
+        </Panel>}
 
-        <Panel title="Recent Collections" action={() => nav("/finance?tab=collections")}>
+        {canFinance && <Panel title="Recent Collections" action={() => nav("/finance?tab=collections")}>
           <DataTable testid="dash-collections"
             columns={[
               { key: "date", label: "Date", type: "date" },
@@ -154,9 +164,9 @@ export default function Dashboard() {
             ]}
             rows={d.lists.recent_collections}
             empty={<EmptyState title="No collections yet" text="Record a collection from Quick Actions." />} />
-        </Panel>
+        </Panel>}
 
-        <Panel title="Recent Expenses & Payments" action={() => nav("/finance?tab=expenses")}>
+        {canFinance && <Panel title="Recent Expenses & Payments" action={() => nav("/finance?tab=expenses")}>
           <DataTable testid="dash-expenses"
             columns={[
               { key: "date", label: "Date", type: "date" },
@@ -166,7 +176,7 @@ export default function Dashboard() {
             ]}
             rows={[...d.lists.recent_expenses, ...d.lists.recent_payments].slice(0, 8)}
             empty={<EmptyState title="No expenses yet" text="Record an expense from Quick Actions." />} />
-        </Panel>
+        </Panel>}
       </div>
     </div>
   );
@@ -182,10 +192,11 @@ const Section = ({ title, children }) => (
 const kfmt = (v) => (Math.abs(v) >= 100000 ? `${(v / 100000).toFixed(1)}L`
   : Math.abs(v) >= 1000 ? `${Math.round(v / 1000)}k` : `${v}`);
 
-const MonthlyCharts = ({ m, nav }) => {
+const MonthlyCharts = ({ m, nav, canFinance, canTrips, canLrs }) => {
   const t = m.totals;
   return (
     <Section title="Monthly business overview — last 6 months">
+      {canFinance && <>
       <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat testid="stat-rev-6m" label="Revenue (6 months)" value={money0(t.revenue)} icon={ArrowDownRight}
           tone="text-brand-600" onClick={() => nav("/reports")} />
@@ -224,20 +235,6 @@ const MonthlyCharts = ({ m, nav }) => {
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Trips & LRs per Month" sub="Business volume" testid="chart-volume">
-          <ResponsiveContainer width="100%" height={230}>
-            <BarChart data={m.series} barGap={4}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E3E7EB" vertical={false} />
-              <XAxis dataKey="month" fontSize={11} stroke="#69747F" />
-              <YAxis fontSize={11} stroke="#69747F" allowDecimals={false} />
-              <Tooltip />
-              <Legend iconSize={9} />
-              <Bar dataKey="trips" name="Trips" fill="#1B242F" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="lrs" name="LRs" fill="#2C8474" radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
         <ChartCard title="Top Parties by Outstanding" sub="Who owes you the most" testid="chart-top-parties">
           {m.top_parties.length ? (
             <ResponsiveContainer width="100%" height={230}>
@@ -252,6 +249,20 @@ const MonthlyCharts = ({ m, nav }) => {
           ) : <EmptyState title="Nothing outstanding" text="All party payments are settled." />}
         </ChartCard>
       </div>
+      </>}
+      {(canTrips || canLrs) && <ChartCard title="Trips & LRs per Month" sub="Business volume" testid="chart-volume">
+        <ResponsiveContainer width="100%" height={230}>
+          <BarChart data={m.series} barGap={4}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#E3E7EB" vertical={false} />
+            <XAxis dataKey="month" fontSize={11} stroke="#69747F" />
+            <YAxis fontSize={11} stroke="#69747F" allowDecimals={false} />
+            <Tooltip />
+            <Legend iconSize={9} />
+            {canTrips && <Bar dataKey="trips" name="Trips" fill="#1B242F" radius={[3, 3, 0, 0]} />}
+            {canLrs && <Bar dataKey="lrs" name="LRs" fill="#2C8474" radius={[3, 3, 0, 0]} />}
+          </BarChart>
+        </ResponsiveContainer>
+      </ChartCard>}
     </Section>
   );
 };

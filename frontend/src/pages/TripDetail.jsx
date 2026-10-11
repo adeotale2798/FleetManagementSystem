@@ -4,6 +4,7 @@ import { Ban, FileText, Fuel, Pencil, Plus, Receipt } from "lucide-react";
 import { api, errMsg } from "../lib/api";
 import { useFetch, useMaster, opts } from "../lib/hooks";
 import { money, dmy } from "../lib/format";
+import { hasAdminAccess } from "../lib/adminAccess";
 import EntryModal from "../components/QuickForms";
 import {
   Badge, Btn, Card, DataTable, EmptyState, ErrorState, Input, Loader, Modal, Money, PageHead, Select, toast,
@@ -11,10 +12,12 @@ import {
 
 const FLOW = ["New", "Assigned", "Started", "In Transit", "Delivered", "Completed"];
 
-export default function TripDetail() {
+export default function TripDetail({ user }) {
   const { id } = useParams();
   const nav = useNavigate();
   const { data: t, loading, error, reload } = useFetch(`/trips/${id}`);
+  const canLrs = hasAdminAccess(user, "industrial_lrs");
+  const canFinance = hasAdminAccess(user, "industrial_finance");
   const [entry, setEntry] = useState(null);
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState(null);
@@ -36,6 +39,10 @@ export default function TripDetail() {
     setBusy(true);
     try {
       const payload = { ...edit, trip_amount: Number(edit.trip_amount) || 0, expected_collection: Number(edit.expected_collection) || 0 };
+      if (!canFinance) {
+        delete payload.trip_amount;
+        delete payload.expected_collection;
+      }
       if (payload.vehicle_id) {
         const v = (vehicles.data || []).find((x) => x.id === payload.vehicle_id);
         if (v) payload.vehicle_no = v.vehicle_no;
@@ -69,9 +76,9 @@ export default function TripDetail() {
             {t.status !== "Cancelled" && next && (
               <Btn data-testid="advance-status" disabled={busy} onClick={() => setStatus(next)}>Mark {next}</Btn>
             )}
-            <Btn variant="s" icon={FileText} data-testid="create-lr-from-trip" onClick={() => nav(`/lrs/new?trip=${id}`)}>Create LR</Btn>
+            {canLrs && <Btn variant="s" icon={FileText} data-testid="create-lr-from-trip" onClick={() => nav(`/lrs/new?trip=${id}`)}>Create LR</Btn>}
             {t.status !== "Cancelled" && <Btn variant="s" icon={Pencil} data-testid="edit-trip" onClick={openEdit}>Edit Trip</Btn>}
-            {t.status !== "Cancelled" && <Btn variant="d" icon={Ban} onClick={cancel} data-testid="cancel-trip">Cancel Trip</Btn>}
+            {canFinance && t.status !== "Cancelled" && <Btn variant="d" icon={Ban} onClick={cancel} data-testid="cancel-trip">Cancel Trip</Btn>}
           </>
         } />
 
@@ -118,8 +125,8 @@ export default function TripDetail() {
               ["Vehicle", t.vehicle_no + (t.temp_vehicle?.vehicle_no ? " (temporary)" : "")],
               ["Driver", t.driver_name || "Not assigned"],
               ["Party", t.party_name || "—"],
-              ["Trip Amount", money(t.trip_amount)],
-              ["Expected Collection", money(t.expected_collection)],
+              ...(canFinance ? [["Trip Amount", money(t.trip_amount)],
+                ["Expected Collection", money(t.expected_collection)]] : []),
               ["From Address", t.from_address || t.from_name],
               ["To Address", t.to_address || t.to_name],
               ["Remarks", t.remarks || "—"],
@@ -134,11 +141,11 @@ export default function TripDetail() {
           <h3 className="mb-3 font-head text-[16px] font-bold">Change Status</h3>
           <Select value={t.status} data-testid="trip-status-select" onChange={(e) => setStatus(e.target.value)}
             options={[...FLOW, "Cancelled"]} placeholder={t.status} />
-          <div className="mt-4 space-y-2">
+          {canFinance && <div className="mt-4 space-y-2">
             <Btn variant="s" icon={Receipt} className="w-full" data-testid="add-trip-expense" onClick={() => setEntry("expense")}>Add Expense</Btn>
             <Btn variant="s" icon={Fuel} className="w-full" onClick={() => setEntry("fuel")}>Add Diesel</Btn>
-          </div>
-          <div className="mt-4 rounded-lg bg-canvas p-3 text-[13px]" data-testid="trip-profit">
+          </div>}
+          {canFinance && <div className="mt-4 rounded-lg bg-canvas p-3 text-[13px]" data-testid="trip-profit">
             <p className="flex justify-between"><span className="text-muted">Trip Earning</span>
               <b className="num">{money(t.profit?.earning)}</b></p>
             <p className="mt-1 flex justify-between"><span className="text-muted">Trip Expenses</span>
@@ -148,11 +155,11 @@ export default function TripDetail() {
             <p className="mt-2 flex justify-between border-t border-line pt-2 text-[14px]">
               <span className="font-semibold">Profit</span>
               <b className={`num ${t.profit?.profit < 0 ? "text-red-600" : "text-brand-600"}`}>{money(t.profit?.profit)}</b></p>
-          </div>
+          </div>}
         </Card>
       </div>
 
-      <Card className="mt-4 overflow-hidden">
+      {canLrs && <Card className="mt-4 overflow-hidden">
         <div className="flex items-center justify-between border-b border-line px-4 py-3">
           <h3 className="font-head text-[15.5px] font-bold">Lorry Receipts ({(t.lrs || []).length})</h3>
           <Btn variant="s" icon={Plus} onClick={() => nav(`/lrs/new?trip=${id}`)}>Add LR</Btn>
@@ -163,15 +170,17 @@ export default function TripDetail() {
             { key: "date", label: "Date", type: "date" },
             { key: "sender", label: "Sender", render: (r) => r.sender?.name },
             { key: "receiver", label: "Receiver", render: (r) => r.receiver?.name || "—" },
-            { key: "freight", label: "Freight", type: "money", right: true },
-            { key: "payment_status", label: "Status", type: "badge" },
+            ...(canFinance ? [
+              { key: "freight", label: "Freight", type: "money", right: true },
+              { key: "payment_status", label: "Status", type: "badge" },
+            ] : []),
           ]}
           rows={t.lrs || []} onRowClick={(r) => nav(`/lrs/${r.id}`)}
           empty={<EmptyState title="No LR for this trip" text="Create an LR — trip details fill in automatically."
             action={<Btn onClick={() => nav(`/lrs/new?trip=${id}`)}>Create LR</Btn>} />} />
-      </Card>
+      </Card>}
 
-      {((t.expenses || []).length > 0 || (t.fuel || []).length > 0) && (
+      {canFinance && ((t.expenses || []).length > 0 || (t.fuel || []).length > 0) && (
         <Card className="mt-4 overflow-hidden">
           <div className="border-b border-line px-4 py-3"><h3 className="font-head text-[15.5px] font-bold">Expenses & Diesel</h3></div>
           <DataTable
@@ -185,8 +194,9 @@ export default function TripDetail() {
         </Card>
       )}
 
-      <EntryModal kind={entry || "expense"} open={!!entry} onClose={() => setEntry(null)} onDone={reload}
+      {canFinance && <EntryModal kind={entry || "expense"} open={!!entry} onClose={() => setEntry(null)} onDone={reload}
         preset={{ trip_id: id, trip_no: t.trip_no, vehicle_id: t.vehicle_id, vehicle_no: t.vehicle_no, driver_id: t.driver_id }} />
+      }
 
       <Modal open={!!edit} onClose={() => setEdit(null)} title={`Edit Trip ${t.trip_no}`}
         subtitle="Correct vehicle, driver, route or amount — nothing is deleted"
@@ -202,8 +212,10 @@ export default function TripDetail() {
               options={opts(drivers.data)} placeholder="Select driver" />
             <Input label="From" value={edit.from_name} data-testid="edit-from" onChange={(e) => setEdit({ ...edit, from_name: e.target.value })} />
             <Input label="To" value={edit.to_name} data-testid="edit-to" onChange={(e) => setEdit({ ...edit, to_name: e.target.value })} />
-            <Money label="Trip Amount" value={edit.trip_amount} data-testid="edit-amount" onChange={(e) => setEdit({ ...edit, trip_amount: e.target.value })} />
-            <Money label="Expected Collection" value={edit.expected_collection} onChange={(e) => setEdit({ ...edit, expected_collection: e.target.value })} />
+            {canFinance && <>
+              <Money label="Trip Amount" value={edit.trip_amount} data-testid="edit-amount" onChange={(e) => setEdit({ ...edit, trip_amount: e.target.value })} />
+              <Money label="Expected Collection" value={edit.expected_collection} onChange={(e) => setEdit({ ...edit, expected_collection: e.target.value })} />
+            </>}
             <label className="block"><span className="lbl">Start Date</span>
               <input type="date" className="fld" value={edit.start_date} onChange={(e) => setEdit({ ...edit, start_date: e.target.value })} /></label>
             <Input label="Remarks" value={edit.remarks} onChange={(e) => setEdit({ ...edit, remarks: e.target.value })} />

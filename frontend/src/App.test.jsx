@@ -28,6 +28,7 @@ describe("Booking setup route access", () => {
 
   beforeEach(() => {
     localStorage.setItem("fms_token", "test-token");
+    sessionStorage.removeItem("fms_support_token");
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -36,6 +37,7 @@ describe("Booking setup route access", () => {
   afterEach(() => {
     act(() => root.unmount());
     localStorage.removeItem("fms_token");
+    sessionStorage.removeItem("fms_support_token");
     window.history.replaceState({}, "", "/");
     container.remove();
     jest.clearAllMocks();
@@ -59,6 +61,13 @@ describe("Booking setup route access", () => {
   it("redirects site managers from setup to the booking workspace", async () => {
     await renderAs("site_manager");
     expect(container.querySelector('[data-testid="booking"]')).not.toBeNull();
+  });
+
+  it("opens the customer app for a session-scoped platform support token", async () => {
+    sessionStorage.setItem("fms_support_token", "short-lived-support-token");
+    await renderAs("owner", "/booking/dashboard");
+    expect(container.querySelector('[data-testid="booking"]')).not.toBeNull();
+    expect(api.get).toHaveBeenCalledWith("/me");
   });
 
   it.each([

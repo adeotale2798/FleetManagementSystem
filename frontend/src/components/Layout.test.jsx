@@ -6,7 +6,7 @@ import { api } from "../lib/api";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-jest.mock("../lib/api", () => ({ api: { get: jest.fn() } }));
+jest.mock("../lib/api", () => ({ api: { get: jest.fn(), post: jest.fn() }, errMsg: () => "Request failed" }));
 
 describe("owner quick actions", () => {
   let container;
@@ -14,6 +14,7 @@ describe("owner quick actions", () => {
 
   beforeEach(() => {
     api.get.mockReset();
+    api.post.mockReset();
     Object.defineProperty(window.navigator, "onLine", { configurable: true, value: true });
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -23,13 +24,14 @@ describe("owner quick actions", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    sessionStorage.removeItem("fms_support_token");
   });
 
-  const renderAt = async (path, syncStatus = "connected", branding = undefined) => {
+  const renderAt = async (path, syncStatus = "connected", branding = undefined, user = undefined) => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={[path]}>
-          <Layout user={{ role: "owner", name: "Owner", features: {}, branding }} syncStatus={syncStatus}>
+          <Layout user={user || { role: "owner", name: "Owner", features: {}, branding }} syncStatus={syncStatus}>
             <div>Page content</div>
           </Layout>
         </MemoryRouter>,
@@ -52,7 +54,26 @@ describe("owner quick actions", () => {
     expect(container.querySelector('[data-testid="global-search"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="quick-action-btn"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="mobile-quick-btn"]')).not.toBeNull();
-    expect(container.querySelectorAll('[data-testid^="mnav-"]')).toHaveLength(4);
+    expect(container.querySelectorAll('[data-testid^="mnav-"]')).toHaveLength(5);
+    expect(container.querySelector('[data-testid="mnav-industrial-dashboard"]')).not.toBeNull();
+  });
+
+  it("shows only the sections granted to a business admin", async () => {
+    await renderAt("/trips?tab=trips", "connected", undefined, {
+      role: "owner",
+      name: "Admin",
+      features: { trips: true },
+      admin_access: { industrial_trips: true },
+    });
+
+    expect(container.querySelector('[data-testid="nav-industrial-trips"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="nav-vehicles"]')).toBeNull();
+    expect(container.querySelector('[data-testid="nav-dashboard"]')).toBeNull();
+    const quickButton = container.querySelector('[data-testid="quick-action-btn"]');
+    expect(quickButton).not.toBeNull();
+    await act(async () => quickButton.click());
+    expect(container.querySelector('[data-testid="quick-lr"]')).toBeNull();
+    expect(container.querySelector('[data-testid="quick-trip"]')).not.toBeNull();
   });
 
   it("shows live-update and offline status in the header", async () => {
@@ -71,6 +92,25 @@ describe("owner quick actions", () => {
       window.dispatchEvent(new Event("online"));
     });
     expect(status.textContent).toContain("Live updates on");
+  });
+
+  it("clearly marks the full client support session", async () => {
+    sessionStorage.setItem("fms_support_token", "support-token");
+    api.post.mockResolvedValue({ data: { ok: true } });
+    await renderAt("/booking/dashboard", "connected", undefined, {
+      role: "owner",
+      name: "Platform Owner",
+      tenant_name: "Fleet One",
+      platform_support: true,
+      features: { trips: true },
+    });
+
+    expect(container.textContent).toContain("Support mode · Fleet One");
+    const exit = container.querySelector('[data-testid="exit-platform-support"]');
+    expect(exit?.textContent).toContain("Exit client");
+    await act(async () => exit.click());
+    expect(api.post).toHaveBeenCalledWith("/platform/support-session/end");
+    expect(sessionStorage.getItem("fms_support_token")).toBeNull();
   });
 
   it("falls back when a business logo cannot load", async () => {

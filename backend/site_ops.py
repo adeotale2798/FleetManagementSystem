@@ -24,8 +24,9 @@ from pymongo.errors import DuplicateKeyError
 
 import ledger as L
 import storage as S
-from auth import hash_manager_pw, site_user
-from db import current_db_name, db, new_id, now_iso, platform_db
+from auth import hash_manager_pw, require_super, site_user
+from db import current_db_name, db, new_id, now_iso, platform_db, set_tenant
+from access_control import has_admin_access
 
 router = APIRouter()
 _indexed_databases = set()
@@ -354,7 +355,7 @@ def _tenant_id(user):
 
 
 def _owner(user):
-    if user.get("role") != "owner":
+    if user.get("role") != "owner" and not user.get("_platform_support"):
         raise HTTPException(403, "Business owner access required")
 
 
@@ -510,7 +511,7 @@ def _creator_metadata(user: dict[str, Any]) -> dict[str, str]:
         "created_by_id": str(user.get("_id") or login),
         "created_by_login": login,
         "created_by_name": str(user.get("name") or ""),
-        "created_by_role": str(user.get("role") or ""),
+        "created_by_role": str(user.get("actor_role") or user.get("role") or ""),
         "created_at": now_iso(),
     }
 
@@ -537,7 +538,12 @@ def _charge_editor_marker(record: dict[str, Any]) -> str:
 
 def _entry_by(record: dict[str, Any]) -> str:
     role = record.get("created_by_role")
-    label = "A" if role in {"owner", "admin"} else "M" if role == "site_manager" else ""
+    label = (
+        "P" if role == "platform_support"
+        else "A" if role in {"owner", "admin"}
+        else "M" if role == "site_manager"
+        else ""
+    )
     name = str(record.get("created_by_name") or "").strip()
     first_name = name.split(maxsplit=1)[0] if name else ""
     return f"{label}-{first_name}" if label and first_name else (label if label else "")
@@ -792,7 +798,7 @@ async def _site_for_user(site_id, user, permission=None, include_inactive_owner=
     site = await db.sites.find_one({"_id": site_id, "business_id": business_id})
     if not site:
         raise HTTPException(404, "Site not found")
-    if user.get("role") == "owner":
+    if user.get("role") == "owner" or user.get("_platform_support"):
         if not include_inactive_owner and site.get("status") != "Active":
             raise HTTPException(409, "This site is inactive")
         return site
@@ -815,7 +821,7 @@ async def _audit(site, user, action, target_type, target_id, old=None, new=None,
         "business_id": str(site["business_id"]), "site_id": site["_id"],
         "actor_id": str(user.get("_id") or user["username"]),
         "actor_username": user["username"], "actor_name": user.get("name", ""),
-        "actor_role": user.get("role", ""),
+        "actor_role": user.get("actor_role") or user.get("role", ""),
         "action": action, "target_type": target_type, "target_id": target_id,
         "old_values": old or {}, "new_values": new or {}, "reason": reason or "",
         "created_at": now_iso(),
@@ -898,7 +904,7 @@ async def list_sites(u=Depends(site_user)):
     query: dict[str, Any] = {"business_id": business_id}
     if u.get("role") == "site_manager":
         query["_id"] = {"$in": u.get("site_ids") or []}
-    elif u.get("role") != "owner":
+    elif u.get("role") != "owner" and not u.get("_platform_support"):
         raise HTTPException(403, "Business site access required")
     sites = await db.sites.find(query).sort([("is_default", -1), ("name", 1)]).to_list(500)
     return [_doc_for_user(s, u) for s in sites]
@@ -5382,3 +5388,138 @@ async def download_site_ledger_original(site_id: str, import_id: str, u=Depends(
         headers={"Content-Disposition": f'attachment; filename="{imported["original_filename"]}"',
                  "Cache-Control": "no-store"},
     )
+
+
+async def _platform_booking_support_user(tenant_id: str, platform_user: dict[str, Any]):
+    tenant = await platform_db.tenants.find_one({"_id": tenant_id})
+    if not tenant:
+        raise HTTPException(404, "Customer business not found")
+    set_tenant(tenant_id)
+    return {
+        "_id": platform_user["username"],
+        "username": platform_user["username"],
+        "name": platform_user.get("name", "Platform owner"),
+        "role": "superadmin",
+        "actor_role": "platform_support",
+        "tenant_id": tenant_id,
+        "_platform_support": True,
+    }
+
+
+@router.get("/platform/tenants/{tenant_id}/booking/sites")
+async def platform_booking_sites(tenant_id: str, u=Depends(require_super)):
+    support_user = await _platform_booking_support_user(tenant_id, u)
+    return await list_sites(u=support_user)
+
+
+@router.post("/platform/tenants/{tenant_id}/booking/sites")
+async def platform_booking_create_site(
+    tenant_id: str, body: SiteCreate, u=Depends(require_super),
+):
+    support_user = await _platform_booking_support_user(tenant_id, u)
+    return await create_site(body, u=support_user)
+
+
+@router.put("/platform/tenants/{tenant_id}/booking/sites/{site_id}")
+async def platform_booking_update_site(
+    tenant_id: str, site_id: str, body: SiteUpdate, u=Depends(require_super),
+):
+    support_user = await _platform_booking_support_user(tenant_id, u)
+    return await update_site(site_id, body, u=support_user)
+
+
+@router.get("/platform/tenants/{tenant_id}/booking/sites/{site_id}/categories")
+async def platform_booking_site_categories(
+    tenant_id: str, site_id: str, u=Depends(require_super),
+):
+    support_user = await _platform_booking_support_user(tenant_id, u)
+    return await get_site_categories(site_id, u=support_user)
+
+
+@router.post("/platform/tenants/{tenant_id}/booking/sites/{site_id}/categories")
+async def platform_booking_add_category(
+    tenant_id: str, site_id: str, body: CategoryCreate, u=Depends(require_super),
+):
+    support_user = await _platform_booking_support_user(tenant_id, u)
+    return await add_site_category(site_id, body, u=support_user)
+
+
+@router.get("/platform/tenants/{tenant_id}/booking/receipt-controls")
+async def platform_booking_receipt_controls(tenant_id: str, u=Depends(require_super)):
+    support_user = await _platform_booking_support_user(tenant_id, u)
+    return await read_booking_receipt_visibility(u=support_user)
+
+
+@router.put("/platform/tenants/{tenant_id}/booking/receipt-controls")
+async def platform_booking_update_receipt_controls(
+    tenant_id: str, body: BookingReceiptVisibility, u=Depends(require_super),
+):
+    support_user = await _platform_booking_support_user(tenant_id, u)
+    return await update_booking_receipt_visibility(body, u=support_user)
+
+
+@router.get("/platform/tenants/{tenant_id}/booking/managers")
+async def platform_booking_managers(tenant_id: str, u=Depends(require_super)):
+    support_user = await _platform_booking_support_user(tenant_id, u)
+    return await list_site_managers(u=support_user)
+
+
+@router.post("/platform/tenants/{tenant_id}/booking/sites/{site_id}/manager")
+async def platform_booking_assign_manager(
+    tenant_id: str, site_id: str, body: ManagerAssignment, u=Depends(require_super),
+):
+    support_user = await _platform_booking_support_user(tenant_id, u)
+    return await assign_site_manager(site_id, body, u=support_user)
+
+
+@router.put("/platform/tenants/{tenant_id}/booking/managers/{username}/access")
+async def platform_booking_update_manager_access(
+    tenant_id: str, username: str, body: ManagerAccess, u=Depends(require_super),
+):
+    support_user = await _platform_booking_support_user(tenant_id, u)
+    return await update_manager_access(username, body, u=support_user)
+
+
+@router.post("/platform/tenants/{tenant_id}/booking/managers/{username}/reset-password")
+async def platform_booking_reset_manager_password(
+    tenant_id: str, username: str, body: ManagerPasswordReset, u=Depends(require_super),
+):
+    support_user = await _platform_booking_support_user(tenant_id, u)
+    return await reset_manager_password(username, body, u=support_user)
+
+
+@router.delete("/platform/tenants/{tenant_id}/booking/managers/{username}")
+async def platform_booking_deactivate_manager(
+    tenant_id: str, username: str, u=Depends(require_super),
+):
+    support_user = await _platform_booking_support_user(tenant_id, u)
+    return await deactivate_manager(username, u=support_user)
+
+
+@router.post("/platform/tenants/{tenant_id}/booking/upload")
+async def platform_booking_upload(
+    tenant_id: str,
+    kind: str = "logo",
+    file: UploadFile = File(...),
+    u=Depends(require_super),
+):
+    await _platform_booking_support_user(tenant_id, u)
+    data = await file.read()
+    if len(data) > 6 * 1024 * 1024:
+        raise HTTPException(400, "Please upload an image under 6 MB")
+    extension = (file.filename or "").rsplit(".", 1)[-1].lower()
+    if kind != "logo" or extension not in {"jpg", "jpeg", "png", "webp", "gif"}:
+        raise HTTPException(415, "Receipt logo must be a JPG, PNG, WEBP, or GIF image")
+    path, content_type = S.build_path(tenant_id, kind, file.filename or "logo.png")
+    try:
+        result = await run_in_threadpool(
+            S.put_object, path, data, file.content_type or content_type,
+        )
+    except Exception as error:
+        raise HTTPException(502, f"Receipt logo upload failed: {error}") from error
+    await db.files.insert_one({
+        "_id": new_id(), "storage_path": result["path"], "kind": kind,
+        "original_filename": file.filename, "content_type": file.content_type or content_type,
+        "size": result.get("size", len(data)), "is_deleted": False, "created_at": now_iso(),
+    })
+    return {"path": result["path"], "url": f"/api/files/{result['path']}"}

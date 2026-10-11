@@ -4,12 +4,13 @@ import { Check, Truck } from "lucide-react";
 import { api, errMsg } from "../lib/api";
 import { useFetch, useMaster, opts } from "../lib/hooks";
 import { money, todayISO, nowTime } from "../lib/format";
+import { hasAdminAccess } from "../lib/adminAccess";
 import LocationPicker from "../components/LocationPicker";
 import {
   Autocomplete, Badge, Btn, Card, Input, Money, PageHead, Select, TextArea, toast,
 } from "../components/ui";
 
-export default function TripForm() {
+export default function TripForm({ user }) {
   const nav = useNavigate();
   const [sp] = useSearchParams();
   const [f, setF] = useState({
@@ -25,6 +26,10 @@ export default function TripForm() {
   const [partyText, setPartyText] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const canFinance = hasAdminAccess(user, "industrial_finance");
+  const canVehicles = hasAdminAccess(user, "industrial_vehicles");
+  const canTeam = hasAdminAccess(user, "industrial_team");
+  const canParties = hasAdminAccess(user, "industrial_parties");
 
   const settings = useFetch("/settings");
   const vehicles = useMaster("vehicles");
@@ -50,6 +55,18 @@ export default function TripForm() {
     setBusy(true); setErr("");
     try {
       const body = { ...f, trip_amount: Number(f.trip_amount || 0), expected_collection: Number(f.expected_collection || 0) };
+      if (!canFinance) {
+        delete body.trip_amount;
+        delete body.expected_collection;
+        if (body.temp_vehicle) {
+          delete body.temp_vehicle.hire_amount;
+          delete body.temp_vehicle.paid;
+        }
+        if (body.temp_driver) {
+          delete body.temp_driver.hire_amount;
+          delete body.temp_driver.paid;
+        }
+      }
       if (temp?.vehicle_no) { body.temp_vehicle = temp; body.save_vehicle = !!temp.save; body.vehicle_id = null; }
       if (tempDrv?.name) { body.temp_driver = tempDrv; body.save_driver = !!tempDrv.save; body.driver_id = null; }
       const r = await api.post("/trips", body);
@@ -175,14 +192,14 @@ export default function TripForm() {
               <Input label="Make & Model (optional)" value={temp.make || ""} onChange={(e) => setTemp({ ...temp, make: e.target.value })} />
               <Input label="On fleet / hire from" type="date" value={temp.payment_date || f.start_date}
                 onChange={(e) => setTemp({ ...temp, payment_date: e.target.value })} />
-              <Money label="This-trip hire (₹) if hired" value={temp.hire_amount || ""} onChange={(e) => setTemp({ ...temp, hire_amount: e.target.value })} />
+              {canFinance && <Money label="This-trip hire (₹) if hired" value={temp.hire_amount || ""} onChange={(e) => setTemp({ ...temp, hire_amount: e.target.value })} />}
             </div>
-            <label className="flex items-center gap-2.5 text-[13.5px] font-medium">
+            {canVehicles && <label className="flex items-center gap-2.5 text-[13.5px] font-medium">
               <input type="checkbox" data-testid="temp-save-permanent" checked={!!temp.save}
                 onChange={(e) => setTemp({ ...temp, save: e.target.checked, payment_cycle: e.target.checked ? "Owned" : "this_trip" })} className="h-4 w-4 accent-[#0B5C4E]" />
               Save as a permanent fleet vehicle
-            </label>
-            {Number(temp.hire_amount) > 0 && (
+            </label>}
+            {canFinance && Number(temp.hire_amount) > 0 && (
               <label className="flex items-center gap-2.5 text-[13.5px] font-medium">
                 <input type="checkbox" checked={!!temp.paid} onChange={(e) => setTemp({ ...temp, paid: e.target.checked })} className="h-4 w-4 accent-[#0B5C4E]" />
                 Hire paid now ({temp.pay_mode || "Cash"})
@@ -232,16 +249,17 @@ export default function TripForm() {
               <Input label="Licence no. (optional)" value={tempDrv.licence_no || ""} onChange={(e) => setTempDrv({ ...tempDrv, licence_no: e.target.value })} />
               <Input label="Join / trip date" type="date" value={tempDrv.payment_date || f.start_date}
                 onChange={(e) => setTempDrv({ ...tempDrv, payment_date: e.target.value })} />
-              <Money label="This-trip hire / wage (₹)" value={tempDrv.hire_amount || ""} onChange={(e) => setTempDrv({ ...tempDrv, hire_amount: e.target.value })} />
-              <Select label="Pay mode" value={tempDrv.pay_mode || "Cash"} onChange={(e) => setTempDrv({ ...tempDrv, pay_mode: e.target.value })}
+              {canFinance && <Money label="This-trip hire / wage (₹)" value={tempDrv.hire_amount || ""} onChange={(e) => setTempDrv({ ...tempDrv, hire_amount: e.target.value })} />}
+              {canFinance && <Select label="Pay mode" value={tempDrv.pay_mode || "Cash"} onChange={(e) => setTempDrv({ ...tempDrv, pay_mode: e.target.value })}
                 options={["Cash", "UPI", "Bank"]} />
+              }
             </div>
-            <label className="flex items-center gap-2.5 text-[13.5px] font-medium">
+            {canTeam && <label className="flex items-center gap-2.5 text-[13.5px] font-medium">
               <input type="checkbox" data-testid="temp-save-driver" checked={!!tempDrv.save}
                 onChange={(e) => setTempDrv({ ...tempDrv, save: e.target.checked, payment_cycle: e.target.checked ? "Monthly" : "this_trip" })} className="h-4 w-4 accent-[#0B5C4E]" />
               Save as a permanent driver (monthly payment cycle)
-            </label>
-            {Number(tempDrv.hire_amount) > 0 && (
+            </label>}
+            {canFinance && Number(tempDrv.hire_amount) > 0 && (
               <label className="flex items-center gap-2.5 text-[13.5px] font-medium">
                 <input type="checkbox" checked={!!tempDrv.paid} onChange={(e) => setTempDrv({ ...tempDrv, paid: e.target.checked })} className="h-4 w-4 accent-[#0B5C4E]" />
                 Wage paid now
@@ -253,10 +271,10 @@ export default function TripForm() {
 
       <Card className="mb-4 space-y-4 p-4">
         <div className="border-b border-line pb-3">
-          <h2 className="font-head text-[16px] font-bold">Party &amp; trip amounts</h2>
+          <h2 className="font-head text-[16px] font-bold">{canFinance ? "Party & trip amounts" : "Party"}</h2>
           <p className="text-[13px] text-muted">Optional values can be updated later from trip details.</p>
         </div>
-        <Autocomplete label="Party / Customer" value={partyText} testid="trip-party"
+        {canParties && <Autocomplete label="Party / Customer" value={partyText} testid="trip-party"
           onChange={(v) => { setPartyText(v); setF((s) => ({ ...s, party_id: null, party_name: v })); }}
           onPick={(p) => { setPartyText(p.name); setF((s) => ({ ...s, party_id: p.id, party_name: p.name })); }}
           fetcher={async (q) => (await api.get("/parties/suggest", { params: { q } })).data}
@@ -267,11 +285,11 @@ export default function TripForm() {
                 <p className="text-[12.5px] text-muted">{p.mobile || "no mobile"} · {p.city || "—"}</p></div>
               <span className="num text-[13px] text-amber-600">{money(p.balance)}</span>
             </div>
-          )} />
-        <div className="grid gap-3 md:grid-cols-2">
+          )} />}
+        {canFinance && <div className="grid gap-3 md:grid-cols-2">
           <Money label="Trip Amount" value={f.trip_amount} onChange={set("trip_amount")} data-testid="trip-amount" />
           <Money label="Expected Collection" value={f.expected_collection} onChange={set("expected_collection")} />
-        </div>
+        </div>}
         <TextArea label="Remarks" value={f.remarks} onChange={set("remarks")} />
       </Card>
 

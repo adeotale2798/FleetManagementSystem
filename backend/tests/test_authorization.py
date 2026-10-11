@@ -121,3 +121,64 @@ def test_platform_guard_rejects_business_owner(monkeypatch):
         asyncio.run(auth.require_super(SimpleNamespace()))
 
     assert error.value.status_code == 403
+
+
+def test_platform_support_token_resolves_to_full_tenant_scoped_owner(monkeypatch):
+    token, session_id, _expires_at = auth.make_support_token("platform", "tenant-1")
+    tenant_switches = []
+
+    class Users:
+        async def find_one(self, query):
+            assert query == {"_id": "platform"}
+            return {"_id": "platform", "role": "superadmin", "active": True}
+
+    class Sessions:
+        async def find_one(self, query):
+            assert query == {
+                "_id": session_id, "username": "platform",
+                "tenant_id": "tenant-1", "active": True,
+            }
+            return {"_id": session_id}
+
+    class Tenants:
+        async def find_one(self, query):
+            assert query == {"_id": "tenant-1"}
+            return {"_id": "tenant-1", "name": "Customer One"}
+
+    monkeypatch.setattr(auth, "platform_db", SimpleNamespace(
+        users=Users(), platform_support_sessions=Sessions(), tenants=Tenants(),
+    ))
+    monkeypatch.setattr(auth, "set_tenant", tenant_switches.append)
+
+    user = asyncio.run(auth._resolve_principal(SimpleNamespace(credentials=token)))
+
+    assert tenant_switches == ["tenant-1"]
+    assert user["role"] == "owner"
+    assert user["tenant_id"] == "tenant-1"
+    assert user["platform_support"] is True
+    assert user["platform_actor"] == "platform"
+    assert user["actor_role"] == "platform_support"
+    assert all(user["admin_access"].values())
+    assert user["tenant_access"] == user["admin_access"]
+
+
+def test_platform_support_token_is_rejected_after_session_revocation(monkeypatch):
+    token, _session_id, _expires_at = auth.make_support_token("platform", "tenant-1")
+
+    class Users:
+        async def find_one(self, _query):
+            return {"_id": "platform", "role": "superadmin", "active": True}
+
+    class Sessions:
+        async def find_one(self, _query):
+            return None
+
+    monkeypatch.setattr(auth, "platform_db", SimpleNamespace(
+        users=Users(), platform_support_sessions=Sessions(),
+    ))
+
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(auth._resolve_principal(SimpleNamespace(credentials=token)))
+
+    assert error.value.status_code == 401
+    assert "session has ended" in error.value.detail

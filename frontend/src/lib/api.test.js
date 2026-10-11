@@ -8,7 +8,10 @@ jest.mock("axios", () => ({
   default: {
     create: jest.fn(() => ({
       interceptors: {
-        request: { use: jest.fn() },
+        request: {
+          handlers: [],
+          use(handler) { this.handlers.push(handler); },
+        },
         response: {
           handlers: [],
           use(fulfilled, rejected) {
@@ -25,10 +28,23 @@ import { scheduleMutationSuccess, toast } from "../components/ui";
 import { publishDataChange } from "./realtime";
 
 describe("API mutation notices", () => {
+  const requestInterceptor = api.interceptors.request.handlers[0];
   const responseInterceptor = api.interceptors.response.handlers[0];
 
   beforeEach(() => {
     jest.clearAllMocks();
+    localStorage.removeItem("fms_token");
+    sessionStorage.removeItem("fms_support_token");
+  });
+
+  it("uses the tab-scoped support token without replacing the platform login", () => {
+    localStorage.setItem("fms_token", "platform-token");
+    sessionStorage.setItem("fms_support_token", "support-token");
+    const config = { headers: {} };
+    requestInterceptor(config);
+
+    expect(config.headers.Authorization).toBe("Bearer support-token");
+    expect(localStorage.getItem("fms_token")).toBe("platform-token");
   });
 
   it("schedules one shared success fallback for writes, but not reads or login", () => {
@@ -40,6 +56,16 @@ describe("API mutation notices", () => {
     expect(scheduleMutationSuccess).toHaveBeenCalledWith("Trip created");
     expect(toast).not.toHaveBeenCalled();
     expect(publishDataChange).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["/platform/tenants/tenant-1/support-session", "post"],
+    ["/platform/support-session/end", "post"],
+  ])("does not announce support-session control route %s as a business-data write", (url, method) => {
+    responseInterceptor.fulfilled({ config: { method, url } });
+
+    expect(scheduleMutationSuccess).not.toHaveBeenCalled();
+    expect(publishDataChange).not.toHaveBeenCalled();
   });
 
   it("broadcasts successful tenant revisions without treating them as local refreshes", () => {
