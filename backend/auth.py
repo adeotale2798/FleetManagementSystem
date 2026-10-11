@@ -196,6 +196,10 @@ async def current_user(
     return user
 
 
+async def authenticated_user(cred: HTTPAuthorizationCredentials = Depends(bearer)):
+    return await _resolve_principal(cred)
+
+
 async def site_user(
     cred: HTTPAuthorizationCredentials = Depends(bearer), request: Request = None,
 ):

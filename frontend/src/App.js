@@ -1,9 +1,10 @@
-import React, { lazy, Suspense, useEffect, useState } from "react";
+import React, { Component, lazy, Suspense, useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "./lib/api";
 import { ToastHost, Loader, toast } from "./components/ui";
 import { startDataSync } from "./lib/realtime";
 import { firstAdminRoute, hasAdminAccess } from "./lib/adminAccess";
+import { installClientErrorReporting, reportClientError } from "./lib/errorReporting";
 import Layout from "./components/Layout";
 
 const Login = lazy(() => import("./pages/Login"));
@@ -26,8 +27,38 @@ const Platform = lazy(() => import("./pages/Platform"));
 const PlatformSettings = lazy(() => import("./pages/Platform").then((module) => ({
   default: module.PlatformSettings,
 })));
+const PlatformErrors = lazy(() => import("./pages/Platform").then((module) => ({
+  default: module.PlatformErrors,
+})));
 const SiteConsole = lazy(() => import("./pages/SiteConsole"));
 const Booking = lazy(() => import("./pages/Booking"));
+
+class AppErrorBoundary extends Component {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error) {
+    reportClientError(error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <section role="alert" className="mx-auto my-10 max-w-xl rounded-xl border border-red-300 bg-red-50 p-6 text-center text-red-900">
+          <h1 className="font-head text-xl font-bold">This page encountered an error</h1>
+          <p className="mt-2 text-sm">The error has been reported. Reload the app to try again.</p>
+          <button type="button" className="btn-s mt-4" onClick={() => window.location.reload()}>
+            Reload app
+          </button>
+        </section>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function AdminAccessRoute({ user, accessKey, children }) {
   return hasAdminAccess(user, accessKey)
@@ -119,6 +150,11 @@ export default function App() {
     );
   }, [state, user]);
 
+  useEffect(() => {
+    if (state !== "in" || !user) return undefined;
+    return installClientErrorReporting();
+  }, [state, user]);
+
   if (state === "checking") return <div className="grid h-screen place-items-center"><Loader label="Starting…" /></div>;
 
   return (
@@ -134,11 +170,13 @@ export default function App() {
       ) : (
         <Layout user={user} syncStatus={syncStatus}>
           <Suspense fallback={<div className="grid min-h-[40vh] place-items-center"><Loader label="Loading…" /></div>}>
+            <AppErrorBoundary>
             <Routes>
               {user?.role === "superadmin" ? (
                 <>
                   <Route path="/platform" element={<Platform />} />
                   <Route path="/platform/plans" element={<Platform initialView="plans" />} />
+                  <Route path="/platform/errors" element={<PlatformErrors />} />
                   <Route path="/settings" element={<PlatformSettings />} />
                   <Route path="*" element={<Navigate to="/platform" replace />} />
                 </>
@@ -198,6 +236,7 @@ export default function App() {
                 </>
               )}
             </Routes>
+            </AppErrorBoundary>
           </Suspense>
         </Layout>
       )}

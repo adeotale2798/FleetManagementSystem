@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
 from fastapi import HTTPException
@@ -66,10 +67,107 @@ def test_logged_server_error_has_reference_and_no_request_payload(monkeypatch):
     assert len(records) == 1
     record = records[0]
     assert record["reference_id"] == "reference-123"
+    assert record["source"] == "server"
     assert record["detail"].startswith("Reference reference-123:")
     assert record["traceback"] == "Traceback: Database operation failed"
+    assert record["expires_at"] > datetime.now(timezone.utc)
     assert "body" not in record
     assert "headers" not in record
+
+
+def test_platform_error_logs_are_filtered_and_paginated(monkeypatch):
+    captured = {}
+
+    class Cursor:
+        def sort(self, field, direction):
+            captured["sort"] = (field, direction)
+            return self
+
+        def skip(self, value):
+            captured["skip"] = value
+            return self
+
+        def limit(self, value):
+            captured["limit"] = value
+            return self
+
+        async def to_list(self, value):
+            captured["to_list"] = value
+            return [{"_id": "error-1", "path": "/api/platform/summary"}]
+
+    class ErrorLogs:
+        async def delete_many(self, query):
+            captured["delete"] = query
+
+        async def count_documents(self, query):
+            captured["query"] = query
+            return 51
+
+        def find(self, query):
+            captured["find"] = query
+            return Cursor()
+
+    monkeypatch.setattr(server, "platform_db", SimpleNamespace(error_logs=ErrorLogs()))
+
+    result = asyncio.run(server.platform_errors(
+        page=2, page_size=25, route="/api/platform.summary", status=500,
+        source="server", reference_id="ref.123",
+        from_date=date(2026, 10, 1), to_date=date(2026, 10, 11),
+        u={"role": "superadmin"},
+    ))
+
+    assert result == {
+        "items": [{"id": "error-1", "path": "/api/platform/summary"}],
+        "total": 51,
+        "page": 2,
+        "page_size": 25,
+    }
+    assert captured["skip"] == 25
+    assert captured["limit"] == captured["to_list"] == 25
+    assert captured["sort"] == ("created_at", -1)
+    assert captured["query"]["path"] == {
+        "$regex": "/api/platform\\.summary", "$options": "i",
+    }
+    assert captured["query"]["status"] == 500
+    assert captured["query"]["source"] == {"$in": ["server", None]}
+    assert captured["query"]["reference_id"] == {
+        "$regex": "ref\\.123", "$options": "i",
+    }
+    assert captured["query"]["created_at"] == {
+        "$gte": "2026-10-01", "$lt": "2026-10-12",
+    }
+
+
+def test_client_error_reports_are_redacted_and_expire(monkeypatch):
+    records = []
+
+    class ErrorLogs:
+        async def insert_one(self, record):
+            records.append(record)
+
+    monkeypatch.setattr(server, "platform_db", SimpleNamespace(error_logs=ErrorLogs()))
+    result = asyncio.run(server.report_client_error(
+        server.ClientErrorIn(
+            name="TypeError",
+            message="Authorization: Bearer secret-token-value",
+            stack="Traceback with token=private-value",
+            page="/dashboard",
+            event_type="unhandled_rejection",
+        ),
+        {"role": "site_manager", "tenant_id": "tenant-1"},
+    ))
+
+    assert result == {"ok": True}
+    assert len(records) == 1
+    record = records[0]
+    assert record["source"] == "client"
+    assert record["status"] == 0
+    assert record["path"] == "/dashboard"
+    assert record["event_type"] == "unhandled_rejection"
+    assert record["tenant_id"] == "tenant-1"
+    assert "secret-token-value" not in record["detail"]
+    assert "private-value" not in record["traceback"]
+    assert record["expires_at"] > datetime.now(timezone.utc)
 
 
 def test_http_4xx_details_remain_meaningful():
@@ -142,7 +240,7 @@ def test_middleware_logs_failed_write_safely_without_request_data(monkeypatch):
     assert record["status"] == 422
     assert record["reference_id"]
     assert record["detail"].startswith(f"Reference {record['reference_id']}: amount: Input should be greater than 0")
-    serialized_record = json.dumps(record)
+    serialized_record = json.dumps(record, default=str)
     assert "request-secret" not in serialized_record
     assert "request-token" not in serialized_record
     assert "sensitive-input" not in serialized_record
@@ -219,6 +317,20 @@ def test_successful_write_middleware_returns_revision_header(monkeypatch):
     result = asyncio.run(server.log_failures(request, lambda _: _return(response)))
 
     assert result.headers["X-Data-Revision"] == "12"
+
+
+def test_client_error_report_does_not_publish_business_data_revision(monkeypatch):
+    async def unexpected_revision(_request):
+        raise AssertionError("Error reports must not publish business data revisions.")
+
+    monkeypatch.setattr(server, "_record_data_revision", unexpected_revision)
+    request = _request("/api/client-errors", "POST")
+    response = SimpleNamespace(status_code=202, headers={}, body=b'{"ok":true}')
+
+    result = asyncio.run(server.log_failures(request, lambda _: _return(response)))
+
+    assert result is response
+    assert "X-Data-Revision" not in response.headers
 
 
 def test_sync_revision_reads_only_the_authenticated_business(monkeypatch):

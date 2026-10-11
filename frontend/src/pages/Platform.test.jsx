@@ -2,7 +2,7 @@ import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import Platform, {
-  buildAdminAccessPreset, buildAdminAccessProfile, describeHistoryChanges, PlatformSettings,
+  buildAdminAccessPreset, buildAdminAccessProfile, describeHistoryChanges, PlatformErrors, PlatformSettings,
 } from "./Platform";
 import { ADMIN_ACCESS_DEFAULTS } from "../lib/adminAccess";
 import { api } from "../lib/api";
@@ -677,6 +677,96 @@ describe("business admin access presets", () => {
       expect(screen.getByTestId("platform-operating-rules")).not.toBeNull();
       expect(screen.getByTestId("platform-activity")).not.toBeNull();
       expect(screen.getByText(/Expiry dates and Active\/Suspended status are managed manually/)).not.toBeNull();
+    });
+
+    it("keeps navigation to independent error logs available when the summary fails", () => {
+      useFetch.mockImplementation((path) => {
+        if (path === "/platform/summary") return {
+          data: null,
+          loading: false,
+          error: "The server could not complete this request.",
+          reload: jest.fn(),
+        };
+        return { data: [], loading: false, error: null, reload: jest.fn() };
+      });
+
+      render(<MemoryRouter><PlatformSettings /></MemoryRouter>);
+
+      expect(screen.getByTestId("platform-tab-errors").getAttribute("href")).toBe("/platform/errors");
+    });
+
+    it("loads application API errors without requesting the broken platform summary", () => {
+      const logRows = [{
+        id: "error-1",
+        created_at: "2026-10-11T12:00:00Z",
+        method: "GET",
+        path: "/api/platform/summary",
+        status: 500,
+        reference_id: "reference-1",
+        detail: "Reference reference-1: stats query failed",
+        traceback: "RuntimeError: stats query failed",
+      }];
+      useFetch.mockImplementation((path) => {
+        if (path === "/platform/errors") return {
+          data: { items: logRows, total: 1, page: 1, page_size: 25 },
+          loading: false,
+          error: null,
+          reload: jest.fn(),
+        };
+        throw new Error(`Unexpected data request: ${path}`);
+      });
+
+      render(<MemoryRouter><PlatformErrors /></MemoryRouter>);
+
+      expect(screen.getByTestId("platform-errors-page")).not.toBeNull();
+      expect(screen.getByTestId("platform-tab-errors").getAttribute("aria-current")).toBe("page");
+      expect(screen.getByText("reference-1")).not.toBeNull();
+      expect(screen.getByText("RuntimeError: stats query failed")).not.toBeNull();
+    });
+
+    it("applies route, status, date, and reference filters to paginated error logs", () => {
+      useFetch.mockImplementation((path, params) => {
+        if (path === "/platform/errors") return {
+          data: { items: [], total: 60, page: params.page, page_size: params.page_size },
+          loading: false,
+          error: null,
+          reload: jest.fn(),
+        };
+        throw new Error(`Unexpected data request: ${path}`);
+      });
+
+      render(<MemoryRouter><PlatformErrors /></MemoryRouter>);
+      fireEvent.change(screen.getByLabelText("Filter by route"), {
+        target: { value: "/api/platform/summary" },
+      });
+      fireEvent.change(screen.getByLabelText("Filter by HTTP status"), {
+        target: { value: "500" },
+      });
+      fireEvent.change(screen.getByLabelText("Filter by reference ID"), {
+        target: { value: "reference-1" },
+      });
+      fireEvent.change(screen.getByLabelText("Filter from date"), {
+        target: { value: "2026-10-01" },
+      });
+      fireEvent.change(screen.getByLabelText("Filter to date"), {
+        target: { value: "2026-10-11" },
+      });
+      fireEvent.click(screen.getByText("Apply filters"));
+
+      expect(useFetch).toHaveBeenLastCalledWith("/platform/errors", expect.objectContaining({
+        page: 1,
+        page_size: 25,
+        route: "/api/platform/summary",
+        status: 500,
+        reference_id: "reference-1",
+        from_date: "2026-10-01",
+        to_date: "2026-10-11",
+      }));
+      fireEvent.click(screen.getByText("Next"));
+      expect(useFetch).toHaveBeenLastCalledWith("/platform/errors", expect.objectContaining({
+        page: 2,
+        page_size: 25,
+      }));
     });
   });
 

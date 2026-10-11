@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  ArrowLeft, ArrowRight, Building2, Check, History, Plus, Search, ShieldCheck, Users,
+  AlertTriangle, ArrowLeft, ArrowRight, Building2, Check, History, Plus, Search, ShieldCheck, Users,
 } from "lucide-react";
 import { api, errMsg } from "../lib/api";
 import { useFetch } from "../lib/hooks";
@@ -155,6 +155,25 @@ const blank = {
   name: "", owner_name: "", owner_username: "", owner_password: "",
   email: "", mobile: "", city: "", state: "", plan: "Custom", plan_id: "", license_days: 365,
 };
+
+function PlatformNavigation({ active }) {
+  const tabs = [
+    { id: "clients", to: "/platform", label: "Clients", icon: Building2, testId: "platform-tab-clients" },
+    { id: "plans", to: "/platform/plans", label: "Plans & pricing", icon: ShieldCheck, testId: "platform-tab-plans" },
+    { id: "settings", to: "/settings", label: "Platform settings", icon: History, testId: "platform-tab-settings" },
+    { id: "errors", to: "/platform/errors", label: "Error logs", icon: AlertTriangle, testId: "platform-tab-errors" },
+  ];
+  return (
+    <nav aria-label="Platform management" className="mb-5 flex flex-wrap gap-2 rounded-xl border border-line bg-white p-1.5">
+      {tabs.map(({ id, to, label, icon: Icon, testId }) => (
+        <Link key={id} to={to} data-testid={testId} aria-current={active === id ? "page" : undefined}
+          className={`rounded-lg px-4 py-2 text-sm font-semibold ${active === id ? "bg-brand-700 text-white" : "text-muted hover:bg-canvas"}`}>
+          <span className="inline-flex items-center gap-2"><Icon size={16} /> {label}</span>
+        </Link>
+      ))}
+    </nav>
+  );
+}
 
 const daysUntil = (dateValue) => {
   if (typeof dateValue !== "string" || !dateValue) return Number.POSITIVE_INFINITY;
@@ -516,20 +535,7 @@ export default function Platform({ initialView = "clients" }) {
           <Btn icon={Plus} data-testid="new-plan-btn" onClick={() => openPlanEditor()}>Create a plan</Btn>
         )} />
 
-      {!workspaceOpen && <nav aria-label="Platform management" className="mb-5 flex flex-wrap gap-2 rounded-xl border border-line bg-white p-1.5">
-        <Link to="/platform" data-testid="platform-tab-clients" aria-current={activeView === "clients" ? "page" : undefined}
-          className={`rounded-lg px-4 py-2 text-sm font-semibold ${activeView === "clients" ? "bg-brand-700 text-white" : "text-muted hover:bg-canvas"}`}>
-          <span className="inline-flex items-center gap-2"><Building2 size={16} /> Clients</span>
-        </Link>
-        <Link to="/platform/plans" data-testid="platform-tab-plans" aria-current={activeView === "plans" ? "page" : undefined}
-          className={`rounded-lg px-4 py-2 text-sm font-semibold ${activeView === "plans" ? "bg-brand-700 text-white" : "text-muted hover:bg-canvas"}`}>
-          <span className="inline-flex items-center gap-2"><ShieldCheck size={16} /> Plans &amp; pricing</span>
-        </Link>
-        <Link to="/settings" data-testid="platform-tab-settings"
-          className="rounded-lg px-4 py-2 text-sm font-semibold text-muted hover:bg-canvas">
-          <span className="inline-flex items-center gap-2"><History size={16} /> Platform settings</span>
-        </Link>
-      </nav>}
+      {!workspaceOpen && <PlatformNavigation active={activeView} />}
 
       {!workspaceOpen && activeView === "plans" && <Card className="mb-5 p-4 sm:p-5" data-testid="subscription-plan-manager">
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -1291,28 +1297,167 @@ export default function Platform({ initialView = "clients" }) {
   );
 }
 
+function PlatformErrorLog({ logs }) {
+  return (
+    <Card className="overflow-hidden" data-testid="platform-error-log">
+      <div className="border-b border-line px-4 py-3">
+        <h2 className="font-head text-[15.5px] font-bold">Application API errors</h2>
+        <p className="text-[12.5px] text-muted">
+          Server-side API failures and failed write requests from across the app. Stack traces are visible to platform owners only.
+        </p>
+      </div>
+      {logs.error ? <ErrorState text={logs.error} onRetry={logs.reload} />
+        : logs.loading && !logs.data?.length ? <Loader label="Loading server errors…" />
+          : <DataTable testid="error-log"
+            columns={[
+              { key: "created_at", label: "When", render: (row) => dmyDateTime(row.created_at) },
+              { key: "source", label: "Source", render: (row) => row.source === "client" ? "Browser" : "Server" },
+              { key: "method", label: "Method" },
+              { key: "path", label: "Path", strong: true },
+              { key: "status", label: "Status" },
+              { key: "reference_id", label: "Reference" },
+              {
+                key: "detail",
+                label: "Detail",
+                render: (row) => (
+                  <div>
+                    <p>{row.detail}</p>
+                    {row.traceback && <details className="mt-1">
+                      <summary className="cursor-pointer text-xs text-brand-700">Traceback</summary>
+                      <pre className="mt-1 max-w-xl whitespace-pre-wrap text-xs">{row.traceback}</pre>
+                    </details>}
+                  </div>
+                ),
+              },
+            ]}
+            rows={logs.data || []}
+            empty={<EmptyState title="No server errors" text="When an API returns an error, it will appear here." />} />}
+    </Card>
+  );
+}
+
+export function PlatformErrors() {
+  const pageSize = 25;
+  const [page, setPage] = useState(1);
+  const [draftFilters, setDraftFilters] = useState({
+    route: "", status: "", source: "", reference_id: "", from_date: "", to_date: "",
+  });
+  const [filters, setFilters] = useState(draftFilters);
+  const logs = useFetch("/platform/errors", {
+    page,
+    page_size: pageSize,
+    route: filters.route || undefined,
+    status: filters.status ? Number(filters.status) : undefined,
+    source: filters.source || undefined,
+    reference_id: filters.reference_id || undefined,
+    from_date: filters.from_date || undefined,
+    to_date: filters.to_date || undefined,
+  });
+  const result = logs.data || { items: [], total: 0, page, page_size: pageSize };
+  const pageCount = Math.max(1, Math.ceil(result.total / pageSize));
+  const updateDraft = (key) => (event) => {
+    setDraftFilters((current) => ({ ...current, [key]: event.target.value }));
+  };
+  const applyFilters = (event) => {
+    event.preventDefault();
+    setFilters({ ...draftFilters });
+    setPage(1);
+  };
+  const clearFilters = () => {
+    const emptyFilters = {
+      route: "", status: "", source: "", reference_id: "", from_date: "", to_date: "",
+    };
+    setDraftFilters(emptyFilters);
+    setFilters(emptyFilters);
+    setPage(1);
+  };
+
+  return (
+    <div data-testid="platform-errors-page">
+      <PageHead title="Application error logs"
+        subtitle="Review failed API requests across the application and inspect server traces." />
+      <PlatformNavigation active="errors" />
+      <Card className="mb-4 p-4">
+        <form onSubmit={applyFilters} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <label className="text-sm font-medium text-ink">
+            Route
+            <input className="fld mt-1" value={draftFilters.route} onChange={updateDraft("route")}
+              placeholder="/api/platform/summary" aria-label="Filter by route" />
+          </label>
+          <label className="text-sm font-medium text-ink">
+            HTTP status
+            <input className="fld mt-1" type="number" min="400" max="599"
+              value={draftFilters.status} onChange={updateDraft("status")}
+              placeholder="Any status" aria-label="Filter by HTTP status" />
+          </label>
+          <label className="text-sm font-medium text-ink">
+            Error source
+            <select className="fld mt-1" value={draftFilters.source} onChange={updateDraft("source")}
+              aria-label="Filter by error source">
+              <option value="">All sources</option>
+              <option value="server">Server/API</option>
+              <option value="client">Browser crash</option>
+            </select>
+          </label>
+          <label className="text-sm font-medium text-ink">
+            Reference ID
+            <input className="fld mt-1" value={draftFilters.reference_id}
+              onChange={updateDraft("reference_id")} placeholder="Search reference ID"
+              aria-label="Filter by reference ID" />
+          </label>
+          <label className="text-sm font-medium text-ink">
+            From
+            <input className="fld mt-1" type="date" value={draftFilters.from_date}
+              onChange={updateDraft("from_date")} aria-label="Filter from date" />
+          </label>
+          <label className="text-sm font-medium text-ink">
+            To
+            <input className="fld mt-1" type="date" value={draftFilters.to_date}
+              onChange={updateDraft("to_date")} aria-label="Filter to date" />
+          </label>
+          <div className="flex gap-2 sm:col-span-2 lg:col-span-3">
+            <Btn type="submit">Apply filters</Btn>
+            <Btn type="button" variant="s" onClick={clearFilters}>Clear</Btn>
+          </div>
+        </form>
+      </Card>
+      <PlatformErrorLog logs={{ ...logs, data: result.items }} />
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-muted">
+        <span>
+          {result.total
+            ? `Showing ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, result.total)} of ${result.total} errors`
+            : "No matching errors"}
+        </span>
+        <div className="flex items-center gap-2">
+          <Btn type="button" variant="s" disabled={page <= 1 || logs.loading}
+            onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</Btn>
+          <span>Page {page} of {pageCount}</span>
+          <Btn type="button" variant="s" disabled={page >= pageCount || logs.loading}
+            onClick={() => setPage((current) => Math.min(pageCount, current + 1))}>Next</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function PlatformSettings() {
   const { data, loading, error, reload } = useFetch("/platform/summary");
-  const logs = useFetch("/platform/errors");
   const activity = useFetch("/platform/activity");
   if (loading && !data) return <Loader label="Loading console…" />;
-  if (error) return <ErrorState text={error} onRetry={reload} />;
+  if (error) return (
+    <div data-testid="platform-settings-page">
+      <PageHead title="Platform settings & activity"
+        subtitle="Your platform-wide controls, operating rules, and recent administrative changes." />
+      <PlatformNavigation active="settings" />
+      <ErrorState text={error} onRetry={reload} />
+    </div>
+  );
   const t = data.totals;
   return (
     <div data-testid="platform-settings-page">
       <PageHead title="Platform settings & activity"
         subtitle="Your platform-wide controls, operating rules, and recent administrative changes." />
-      <nav aria-label="Platform management" className="mb-5 flex flex-wrap gap-2 rounded-xl border border-line bg-white p-1.5">
-        <Link to="/platform" className="rounded-lg px-4 py-2 text-sm font-semibold text-muted hover:bg-canvas">
-          Clients
-        </Link>
-        <Link to="/platform/plans" className="rounded-lg px-4 py-2 text-sm font-semibold text-muted hover:bg-canvas">
-          Plans &amp; pricing
-        </Link>
-        <span aria-current="page" className="rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white">
-          Platform settings
-        </span>
-      </nav>
+      <PlatformNavigation active="settings" />
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Customers" value={t.licenses} />
         <Stat label="Active" value={t.active} tone="text-brand-600" />
@@ -1368,24 +1513,6 @@ export function PlatformSettings() {
                 <time className="text-xs text-muted">{dmyDateTime(event.created_at)}</time>
               </li>)}
             </ol> : <EmptyState title="No platform changes yet" text="Saved plan, subscription and access changes will be recorded here." />}
-      </Card>
-      <Card className="overflow-hidden">
-        <details>
-          <summary className="cursor-pointer list-none px-4 py-3">
-            <h3 className="inline font-head text-[15.5px] font-bold">Server error log</h3>
-            <p className="text-[12.5px] text-muted">Technical failures for platform-owner troubleshooting.</p>
-          </summary>
-          <DataTable testid="error-log"
-            columns={[
-              { key: "created_at", label: "When", render: (row) => dmyDateTime(row.created_at) },
-              { key: "method", label: "Method" },
-              { key: "path", label: "Path", strong: true },
-              { key: "status", label: "Status" },
-              { key: "detail", label: "Detail" },
-            ]}
-            rows={logs.data || []}
-            empty={<EmptyState title="No server errors" text="When an API returns 500, it lands here." />} />
-        </details>
       </Card>
     </div>
   );
