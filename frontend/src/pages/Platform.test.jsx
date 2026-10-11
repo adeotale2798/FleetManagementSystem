@@ -29,6 +29,7 @@ const tenant = (id, name, licenseStatus = "Active", admins = [], licenseExpiry =
   name,
   owner_name: `${name} owner`,
   owner_username: `${name.toLowerCase()}-owner`,
+  email: "",
   city: "Pune",
   state: "Maharashtra",
   plan: "Business",
@@ -166,6 +167,37 @@ describe("platform client and access management", () => {
     fireEvent.click(screen.getByTestId("tenant-filter-expired"));
     expect(screen.queryByTestId("manage-tenant-fleet-2")).toBeNull();
     expect(screen.queryByTestId("manage-tenant-fleet-3")).not.toBeNull();
+  });
+
+  it("creates a licence with an optional contact email", async () => {
+    const reload = jest.fn().mockResolvedValue(undefined);
+    useFetch.mockReturnValue({
+      data: summary,
+      loading: false,
+      error: null,
+      reload,
+    });
+    api.post.mockResolvedValue({ data: { ok: true } });
+
+    render(<MemoryRouter><Platform /></MemoryRouter>);
+    fireEvent.click(screen.getByTestId("new-tenant-btn"));
+
+    fireEvent.change(screen.getByTestId("tenant-name"), { target: { value: "New Fleet" } });
+    fireEvent.change(screen.getByTestId("tenant-owner"), { target: { value: "Fleet Owner" } });
+    fireEvent.change(screen.getByTestId("tenant-username"), { target: { value: "fleet-owner" } });
+    fireEvent.change(screen.getByTestId("tenant-password"), { target: { value: "secret123" } });
+    expect(screen.getByTestId("tenant-email").required).toBe(false);
+    fireEvent.change(screen.getByTestId("tenant-email"), { target: { value: "owner@example.com" } });
+    fireEvent.click(screen.getByTestId("save-tenant"));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      "/platform/tenants",
+      expect.objectContaining({
+        name: "New Fleet",
+        owner_name: "Fleet Owner",
+        email: "owner@example.com",
+      }),
+    ));
   });
 
   it("lists attention cases and opens a selected customer workspace", () => {

@@ -1,7 +1,19 @@
 import asyncio
 
+import db
 import server
 from starlette.responses import Response
+
+
+def test_tenant_keys_fit_mongo_database_name_limit(monkeypatch):
+    monkeypatch.setattr(db, "BASE_DB", "fleet_db")
+
+    tenant_id = db.tenant_key("A" * 60, "B" * 60)
+    duplicate_id = db.tenant_key("A" * 60, "B" * 60, collision_index=2)
+
+    assert tenant_id != duplicate_id
+    assert len(db.tenant_db_name(tenant_id).encode("utf-8")) <= db.MAX_MONGO_DATABASE_NAME_BYTES
+    assert len(db.tenant_db_name(duplicate_id).encode("utf-8")) <= db.MAX_MONGO_DATABASE_NAME_BYTES
 
 
 def test_tenant_stats_reads_counts_concurrently(monkeypatch):

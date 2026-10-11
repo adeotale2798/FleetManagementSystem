@@ -169,12 +169,17 @@ def test_create_tenant_and_isolation(super_token, owner_token):
         "owner_name": "Test Owner",
         "owner_username": f"testown{ts}",
         "owner_password": "test12345",
+        "email": "test-owner@example.com",
         "mobile": "9999999999", "city": "TestCity", "state": "TS",
         "plan": "Business", "license_days": 30,
     }
     r = requests.post(f"{API}/platform/tenants", headers=_hdr(super_token), json=payload)
     assert r.status_code == 200, r.text
     tid = r.json()["id"]
+    tenant_rows = requests.get(
+        f"{API}/platform/tenants", headers=_hdr(super_token), timeout=30,
+    ).json()
+    assert next(row for row in tenant_rows if row["id"] == tid)["email"] == payload["email"]
     NEW_TENANT["id"] = tid
     NEW_TENANT["username"] = payload["owner_username"]
     NEW_TENANT["password"] = payload["owner_password"]

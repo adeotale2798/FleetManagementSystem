@@ -312,7 +312,7 @@ The platform console presents reusable plans and a searchable client directory w
 |---|---|---|
 | Platform users, subscription plans, licences, owner audit history and platform errors | `<DB_NAME>_platform` | `users`, `subscription_plans`, `tenants`, `subscription_audit_events`, `error_logs` |
 | Primary tenant's business data | `<DB_NAME>` | Tenant `naidu` maps to base database |
-| Other tenants' business data | `<DB_NAME>_<tenant_id>` | Separate tenant collections; tenant IDs are generated from business/owner names with uniqueness suffixes |
+| Other tenants' business data | `<DB_NAME>_<tenant_id>` | Separate tenant collections; readable tenant IDs are shortened with a stable hash when needed to keep database names within MongoDB's Windows-safe 63-byte limit |
 
 Operational collections referenced by the code include `settings`, `trips`, `lrs`, `vehicles`, `drivers`, `team`, `parties`, `fuel_pumps`, `partners`, `receipts`, `handovers`, `expenses`, `fuel`, `payments`, `advances`, `tpl`, `ledger`, `cashbook`, and `files`. Additive multi-site collections are `sites`, `site_trips`, `site_lrs`, `site_counters`, `site_receivers`, `site_categories`, `site_payments`, `site_financial_events`, `site_audit_events`, `site_ledger_imports`, and `site_migrations`. Site-manager identities remain in platform `users`, with a tenant ID, active flag, assigned `site_ids`, and per-site `site_permissions`. Keep collection ownership tenant-local unless a deliberate platform-wide dataset is designed and documented.
 
