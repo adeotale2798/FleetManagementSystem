@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+from types import SimpleNamespace
 
 import server
 from fastapi.params import Query as QueryParameter
@@ -130,8 +131,8 @@ def test_startup_indexes_trip_aggregation_keys(monkeypatch):
         def __init__(self):
             self.indexes = []
 
-        async def create_index(self, field):
-            self.indexes.append(field)
+        async def create_index(self, field, **options):
+            self.indexes.append((field, options))
 
     class _IndexDatabase:
         def __init__(self):
@@ -141,16 +142,25 @@ def test_startup_indexes_trip_aggregation_keys(monkeypatch):
             return self.collections.setdefault(name, _IndexCollection())
 
     database = _IndexDatabase()
+    platform_database = SimpleNamespace(
+        error_logs=_IndexCollection(),
+        subscription_audit_events=_IndexCollection(),
+    )
 
     async def _noop():
         return None
 
     monkeypatch.setattr(server, "db", database)
+    monkeypatch.setattr(server, "platform_db", platform_database)
     monkeypatch.setattr(server, "seed_owner", _noop)
+    monkeypatch.setattr(server, "seed_subscription_plans", _noop)
     monkeypatch.setattr(server, "get_settings", _noop)
     monkeypatch.setattr(server, "initialize_site_storage", _noop)
 
     asyncio.run(server.startup())
 
     for collection in ("lrs", "expenses", "fuel"):
-        assert "trip_id" in database[collection].indexes
+        assert ("trip_id", {}) in database[collection].indexes
+    assert ("expires_at", {
+        "expireAfterSeconds": 0, "name": "error_logs_expiration",
+    }) in platform_database.error_logs.indexes

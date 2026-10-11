@@ -5,6 +5,7 @@ import traceback
 import json
 import math
 import jwt
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
@@ -12,7 +13,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pymongo import ReturnDocument
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -23,7 +24,7 @@ from access_control import (
     validate_admin_access,
 )
 from auth import (
-    ALGO, SECRET, current_user, hash_pw, make_support_token, make_token,
+    ALGO, SECRET, authenticated_user, current_user, hash_pw, make_support_token, make_token,
     require_platform_support, require_super, seed_owner, site_user, verify_pw,
 )
 from db import PRIMARY_TENANT, db, new_id, now_iso, platform_db, ser, sers, tenant_db, tenant_db_name, tenant_key, today
@@ -44,6 +45,7 @@ _URI_CREDENTIALS = re.compile(r"(?i)(://[^:/@\s]+:)[^@/\s]+(@)")
 _JWT = re.compile(
     r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}(?![A-Za-z0-9_-])"
 )
+ERROR_LOG_RETENTION_DAYS = 30
 
 
 def _redact_error_text(value):
@@ -56,15 +58,18 @@ def _redact_error_text(value):
 
 async def _record_server_error(request, status, reference_id, detail, stack=""):
     try:
+        now = datetime.now(timezone.utc)
         await platform_db.error_logs.insert_one({
             "_id": new_id(),
+            "source": "server",
             "status": status,
             "path": request.url.path,
             "method": request.method,
             "detail": f"Reference {reference_id}: {_redact_error_text(detail)}",
             "traceback": _redact_error_text(stack) if stack else "",
             "reference_id": reference_id,
-            "created_at": now_iso(),
+            "created_at": now.isoformat(),
+            "expires_at": now + timedelta(days=ERROR_LOG_RETENTION_DAYS),
         })
     except Exception:
         pass
@@ -186,6 +191,7 @@ async def log_failures(request: Request, call_next):
         400 <= response.status_code < 500
         and request.method.upper() in {"POST", "PUT", "PATCH", "DELETE"}
         and not request.url.path.rstrip("/").endswith("/auth/login")
+        and not request.url.path.rstrip("/").endswith("/client-errors")
     ):
         await _record_server_error(
             request, response.status_code, request.state.reference_id,
@@ -196,6 +202,7 @@ async def log_failures(request: Request, call_next):
         and request.method.upper() in {"POST", "PUT", "PATCH", "DELETE"}
         and request.url.path.startswith("/api/")
         and not request.url.path.rstrip("/").endswith("/auth/login")
+        and not request.url.path.rstrip("/").endswith("/client-errors")
     ):
         support_context = getattr(request.state, "platform_support", None)
         if support_context and request.url.path != "/api/platform/support-session/end":
@@ -307,6 +314,9 @@ async def next_number(kind):
 async def startup():
     await seed_owner()
     await seed_subscription_plans()
+    await platform_db.error_logs.create_index(
+        "expires_at", expireAfterSeconds=0, name="error_logs_expiration",
+    )
     await platform_db.subscription_audit_events.create_index(
         [("tenant_id", 1), ("created_at", -1)],
     )
@@ -2145,15 +2155,98 @@ async def platform_tenants(u=Depends(require_super)):
 
 
 @api.get("/platform/errors")
-async def platform_errors(u=Depends(require_super)):
-    return sers(await platform_db.error_logs.find().sort("created_at", -1).to_list(200))
+async def platform_errors(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    route: Optional[str] = Query(None, max_length=200),
+    status: Optional[int] = Query(None, ge=400, le=599),
+    source: Optional[str] = Query(None, pattern="^(server|client)$"),
+    reference_id: Optional[str] = Query(None, max_length=100),
+    from_date: Optional[date] = None,
+    to_date: Optional[date] = None,
+    u=Depends(require_super),
+):
+    if from_date and to_date and from_date > to_date:
+        raise HTTPException(400, "Start date must be on or before end date.")
+
+    now = datetime.now(timezone.utc)
+    cutoff = (now - timedelta(days=ERROR_LOG_RETENTION_DAYS)).isoformat()
+    await platform_db.error_logs.delete_many({
+        "$or": [
+            {"expires_at": {"$lte": now}},
+            {"expires_at": {"$exists": False}, "created_at": {"$lt": cutoff}},
+        ],
+    })
+
+    filters = {}
+    if route and route.strip():
+        filters["path"] = {"$regex": re.escape(route.strip()), "$options": "i"}
+    if status is not None:
+        filters["status"] = status
+    if source:
+        filters["source"] = {"$in": ["server", None]} if source == "server" else source
+    if reference_id and reference_id.strip():
+        filters["reference_id"] = {
+            "$regex": re.escape(reference_id.strip()), "$options": "i",
+        }
+    if from_date or to_date:
+        created_at = {}
+        if from_date:
+            created_at["$gte"] = from_date.isoformat()
+        if to_date:
+            created_at["$lt"] = (to_date + timedelta(days=1)).isoformat()
+        filters["created_at"] = created_at
+
+    collection = platform_db.error_logs
+    total = await collection.count_documents(filters)
+    rows = await collection.find(filters).sort("created_at", -1).skip(
+        (page - 1) * page_size,
+    ).limit(page_size).to_list(page_size)
+    return {
+        "items": [
+            {key: value for key, value in ser(row).items() if key != "expires_at"}
+            for row in rows
+        ],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+class ClientErrorIn(BaseModel):
+    name: str = Field("Error", max_length=120)
+    message: str = Field(..., min_length=1, max_length=1000)
+    stack: str = Field("", max_length=8000)
+    page: str = Field("/", max_length=300)
+    event_type: str = Field("error", max_length=40)
+
+
+@api.post("/client-errors", status_code=202)
+async def report_client_error(body: ClientErrorIn, u=Depends(authenticated_user)):
+    now = datetime.now(timezone.utc)
+    report_id = new_id()
+    await platform_db.error_logs.insert_one({
+        "_id": report_id,
+        "source": "client",
+        "status": 0,
+        "method": "CLIENT",
+        "path": _redact_error_text(body.page)[:300],
+        "detail": _redact_error_text(f"{body.name}: {body.message}")[:1200],
+        "traceback": _redact_error_text(body.stack)[:8000],
+        "reference_id": report_id,
+        "event_type": _redact_error_text(body.event_type)[:40],
+        "actor_role": u.get("actor_role") or u.get("role", ""),
+        "tenant_id": u.get("tenant_id"),
+        "created_at": now.isoformat(),
+        "expires_at": now + timedelta(days=ERROR_LOG_RETENTION_DAYS),
+    })
+    return {"ok": True}
 
 
 @api.get("/platform/summary")
 async def platform_summary(u=Depends(require_super)):
     rows = await platform_tenants(u)
     plans = sers(await platform_db.subscription_plans.find().sort("name", 1).to_list(200))
-    from datetime import date
     t = date.today().isoformat()
     active = [r for r in rows if r.get("license_status") == "Active"]
     return {

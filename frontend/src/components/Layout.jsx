@@ -1,7 +1,7 @@
 import React, { memo, useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
-  BarChart3, Banknote, FileText, Fuel, Gauge, LogOut, Menu, Plus, Receipt,
+  AlertTriangle, BarChart3, Banknote, FileText, Fuel, Gauge, LogOut, Menu, Plus, Receipt,
   Search, Settings as Cog, ShieldCheck, Truck, User, Users, UsersRound, Wallet, X, ArrowRight, Building2,
 } from "lucide-react";
 import { api, errMsg } from "../lib/api";
@@ -56,6 +56,8 @@ const PLATFORM_NAV = [
     activeWhen: (location) => location.pathname === "/platform" },
   { to: "/platform/plans", label: "Plans & pricing", icon: ShieldCheck,
     activeWhen: (location) => location.pathname === "/platform/plans" },
+  { to: "/platform/errors", label: "Error logs", icon: AlertTriangle,
+    activeWhen: (location) => location.pathname === "/platform/errors" },
   { to: "/settings", label: "Platform settings", icon: Cog },
 ];
 
