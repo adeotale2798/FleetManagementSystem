@@ -3,6 +3,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { api } from "../lib/api";
 import { registerBookingTestHarness } from "./Booking.testUtils";
 import { matchingGoodsEntries, matchingGoodsSuggestions, romanHindi } from "./Booking";
+import { partyName } from "../lib/partyNames";
 jest.mock("../lib/api", () => ({
   api: { get: jest.fn(), post: jest.fn(), patch: jest.fn(), delete: jest.fn() },
   assetUrl: (value) => value || "",
@@ -29,6 +30,7 @@ describe("simple booking workflow", () => {
     expect(romanHindi("AB1234")).toBe("AB1234");
     expect(romanHindi("GPS")).toBe("GPS");
     expect(romanHindi("Samsung")).toBe("Samsung");
+    expect(romanHindi("Kasva General")).toBe("Kasva General");
     expect(romanHindi("Suresh")).toBe("Suresh");
     expect(romanHindi("car")).toBe("कार");
     expect(romanHindi("HARDWARE")).toBe("हार्डवेयर");
@@ -38,6 +40,13 @@ describe("simple booking workflow", () => {
     expect(romanHindi("gadi bhada")).toBe("गाड़ी भाड़ा");
     expect(romanHindi("gaadi bhaada")).toBe("गाड़ी भाड़ा");
     expect(romanHindi("गाड़ी bhada")).toBe("गाड़ी भाड़ा");
+    expect(partyName("Deepak Jadhav")).toBe("दीपक जधव");
+    expect(partyName("Kasva General")).toBe("कस्वा जनरल");
+    expect(partyName("Rahul")).toBe("राहुल");
+    expect(partyName("Aniket")).toBe("अनिकेत");
+    expect(partyName("Chandnamal Hiralal")).toBe("चंदनमल हीरालाल");
+    expect(partyName("J.L. Chandani")).toBe("J.L. चंदानी");
+    expect(partyName("Suresh Patil")).toBe("सुरेश पाटिल");
     expect(romanHindi("vehicle rent")).toBe("गाड़ी भाड़ा");
     expect(romanHindi("hamali")).toBe("हमाली");
     expect(romanHindi("कपड़ा")).toBe("कपड़ा");
@@ -168,7 +177,6 @@ describe("simple booking workflow", () => {
 
     await act(async () => {
       setInput("प्राप्तकर्ता का नाम", "Suresh");
-      setInput("Receiver name in Hindi", "सुरेश");
       setInput("सामान का नाम · 1", "Cement");
       setInput("मात्रा · 1", "3");
     });
@@ -180,7 +188,8 @@ describe("simple booking workflow", () => {
 
     const [, submittedReceipt] = api.post.mock.calls.find(([path]) => path.endsWith("/lrs"));
     expect(submittedReceipt.receiver_name).toBe("Suresh");
-    expect(submittedReceipt.receiver_name_hindi).toBe("सुरेश");
+    expect(submittedReceipt).not.toHaveProperty("receiver_name_hindi");
+    expect(submittedReceipt).not.toHaveProperty("sender_name_hindi");
     expect(submittedReceipt.receipt_date).toBe(trip.operating_date);
     expect(submittedReceipt.goods_rows).toEqual([{ type: "Cement", type_hindi: "सीमेंट", description: "", description_hindi: "", quantity: 3 }]);
   });
@@ -251,14 +260,14 @@ describe("simple booking workflow", () => {
       .toContain("top-1/2");
     expect(container.querySelector("#receipt-entry-form .sticky.bottom-0")).not.toBeNull();
     expect(container.querySelector("#receipt-entry-form .receipt-form-actions")).not.toBeNull();
-    expect(container.querySelector('[aria-label="Receipt Bhada"]').value).toBe("0");
-    expect(container.querySelector('[aria-label="Receipt Hamali"]').value).toBe("0");
+    expect(container.querySelector('[aria-label="Receipt Bhada"]').value).toBe("");
+    expect(container.querySelector('[aria-label="Receipt Hamali"]').value).toBe("");
     expect(container.textContent).toContain("Bhada (₹)");
     expect(container.textContent).toContain("Hamali (₹)");
     const receiptTotal = container.querySelector(".receipt-total-summary");
     expect(receiptTotal.querySelector(".receipt-total-heading")).not.toBeNull();
     expect(receiptTotal.querySelector(".receipt-total-breakdown").children).toHaveLength(3);
-    expect(receiptTotal.querySelector(".receipt-grand-total").textContent).toContain("₹2");
+    expect(receiptTotal.querySelector(".receipt-grand-total").textContent).not.toContain("₹");
     const receiverAddress = container.querySelector('[aria-label="Receiver address (optional)"]');
     const receiverPhone = container.querySelector('[aria-label="Receiver phone (10 digits, optional)"]');
     expect(receiverAndPhoneRow.contains(receiverPhone)).toBe(true);
@@ -275,7 +284,7 @@ describe("simple booking workflow", () => {
   it("selects the canonical English and Hindi terms from the goods dictionary", async () => {
     const existingReceipt = createLedgerRow({
       sender_name: "Sender", receiver_name: "Receiver",
-      goods_rows: [{ type: "s", type_hindi: "चीनी", quantity: 2 }],
+      goods_rows: [{ type: "s", type_hindi: "पुराना सामान", quantity: 2 }],
     });
     let persistedReceipt = existingReceipt;
     api.get.mockImplementation((path) => {
@@ -308,7 +317,7 @@ describe("simple booking workflow", () => {
       fireEvent.click(within(listbox).getByRole("option", { name: "चीनी" }));
     });
     expect(goodsInput.value).toBe("Sugar");
-    expect(getByLabelText("Goods in Hindi row 1").value).toBe("चीनी");
+    expect(screen.queryByLabelText("Goods in Hindi row 1")).toBeNull();
     expect(screen.queryByRole("listbox", { name: "Suggestions for goods row 1" })).toBeNull();
 
     await act(async () => {
@@ -323,6 +332,8 @@ describe("simple booking workflow", () => {
         })],
       }),
     );
+    await waitFor(() => expect(container.querySelector(".receipt-list-goods").textContent)
+      .toContain("चीनी"));
     await act(async () => {
       Array.from(container.querySelectorAll("button")).find((button) =>
         button.textContent === "Edit").click();
@@ -342,15 +353,26 @@ describe("simple booking workflow", () => {
     });
 
     const goodsInput = getByLabelText("Goods and description row 1");
+    const scrollIntoView = jest.fn();
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
     await act(async () => {
       fireEvent.focus(goodsInput);
       fireEvent.change(goodsInput, { target: { value: "sam" } });
     });
     await act(async () => fireEvent.keyDown(goodsInput, { key: "ArrowDown" }));
     expect(screen.getByRole("option", { name: "सामान" }).getAttribute("aria-selected")).toBe("true");
+    expect(goodsInput.getAttribute("aria-activedescendant"))
+      .toBe("goods-suggestions-1-option-0");
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+    await act(async () => fireEvent.keyDown(goodsInput, { key: "ArrowDown" }));
+    expect(goodsInput.getAttribute("aria-activedescendant"))
+      .toBe("goods-suggestions-1-option-1");
+    expect(screen.getByRole("option", { name: "सामान्य माल" }).getAttribute("aria-selected")).toBe("true");
+    Element.prototype.scrollIntoView = originalScrollIntoView;
     await act(async () => fireEvent.keyDown(goodsInput, { key: "Enter" }));
-    expect(goodsInput.value).toBe("saman");
-    expect(getByLabelText("Goods in Hindi row 1").value).toBe("सामान");
+    expect(goodsInput.value).toBe("General Cargo");
+    expect(screen.queryByLabelText("Goods in Hindi row 1")).toBeNull();
   });
 
   it("finds Hinglish dictionary aliases and selects the canonical English and Hindi terms", async () => {
@@ -387,7 +409,7 @@ describe("simple booking workflow", () => {
       fireEvent.click(within(listbox).getByRole("option", { name: "थैला" }));
     });
     expect(goodsInput.value).toBe("Bag");
-    expect(getByLabelText("Goods in Hindi row 1").value).toBe("थैला");
+    expect(screen.queryByLabelText("Goods in Hindi row 1")).toBeNull();
   });
 
   it("removes goods rows with the X button and restores three blank rows", async () => {
@@ -518,9 +540,17 @@ describe("simple booking workflow", () => {
     mockBookingApi({ trips: [trip], receipts: [previousReceipt] });
     await renderBooking("receipts");
     const receiverInput = getByLabelText("Receiver name in English");
+    const senderInput = getByLabelText("Sender name in English");
     await waitFor(() => expect(receiverInput.getAttribute("list")).toBe("previous-receiver-options"));
+    expect(senderInput.getAttribute("list")).toBe("previous-sender-options");
     expect(Array.from(container.querySelectorAll("#previous-receiver-options option"))
       .map((option) => option.value)).toContain("Suresh");
+    expect(Array.from(container.querySelectorAll("#previous-sender-options option"))
+      .map((option) => option.value)).toContain("Ramesh");
+    fireEvent.change(receiverInput, { target: { value: "S" } });
+    expect(receiverInput.value).toBe("S");
+    expect(Array.from(container.querySelectorAll("#previous-receiver-options option"))
+      .some((option) => option.value.startsWith("S"))).toBe(true);
     fireEvent.change(receiverInput, { target: { value: "Suresh" } });
     expect(getByLabelText("Receiver name in English").value).toBe("Suresh");
     expect(getByLabelText("Receiver phone (10 digits, optional)").value).toBe("9876543210");
@@ -530,9 +560,96 @@ describe("simple booking workflow", () => {
     expect(getByLabelText("Receiver name in English").value).toBe("Suresh");
     expect(getByLabelText("Goods and description row 1").value).toBe("");
     expect(getByLabelText("Quantity row 1").value).toBe("");
-    expect(getByLabelText("Receipt Bhada").value).toBe("0");
-    expect(getByLabelText("Receipt Hamali").value).toBe("0");
+    expect(getByLabelText("Receipt Bhada").value).toBe("");
+    expect(getByLabelText("Receipt Hamali").value).toBe("");
     expect(api.post.mock.calls.some(([path]) => path.endsWith("/lrs"))).toBe(false);
+  });
+
+  it("suggests saved sender and receiver names from other trips at the selected site", async () => {
+    localStorage.setItem("booking_site_id", site.id);
+    localStorage.setItem("booking_trip_id", trip.id);
+    mockBookingApi({ trips: [trip] });
+    const defaultGet = api.get.getMockImplementation();
+    api.get.mockImplementation((path, config) => {
+      if (path === `/sites/${site.id}/party-suggestions`) {
+        return Promise.resolve({
+          data: config.params.q.toLowerCase() === "k"
+            ? { senders: [{ name: "Kasva General" }], receivers: [] }
+            : {
+              senders: [{ name: "Ramesh Jadhav" }],
+              receivers: [{ name: "Ramesh Jadhav", phone: "9876543210" }],
+            },
+        });
+      }
+      return defaultGet(path, config);
+    });
+    await renderBooking("receipts");
+    const senderInput = getByLabelText("Sender name in English");
+    const receiverInput = getByLabelText("Receiver name in English");
+    await waitFor(() => expect(senderInput).not.toBeNull());
+
+    fireEvent.focus(senderInput);
+    fireEvent.change(senderInput, { target: { value: "K" } });
+    await waitFor(() => expect(Array.from(
+      container.querySelectorAll("#previous-sender-options option"),
+    ).map((option) => option.value)).toContain("Kasva General"));
+    fireEvent.change(senderInput, { target: { value: "Kasva General" } });
+    expect(senderInput.value).toBe("Kasva General");
+
+    fireEvent.focus(receiverInput);
+    fireEvent.change(receiverInput, { target: { value: "R" } });
+    await waitFor(() => expect(Array.from(
+      container.querySelectorAll("#previous-receiver-options option"),
+    ).map((option) => option.value)).toContain("Ramesh Jadhav"));
+    fireEvent.change(receiverInput, { target: { value: "Ramesh Jadhav" } });
+    expect(getByLabelText("Receiver phone (10 digits, optional)").value).toBe("9876543210");
+
+    expect(api.get.mock.calls.filter(([path]) =>
+      path === `/sites/${site.id}/party-suggestions`).map(([, config]) => config.params.q))
+      .toEqual(expect.arrayContaining(["K", "R"]));
+  });
+
+  it("saves explicitly entered Hindi party names with the receipt", async () => {
+    localStorage.setItem("booking_site_id", site.id);
+    localStorage.setItem("booking_trip_id", trip.id);
+    mockBookingApi({ trips: [trip] });
+    const defaultGet = api.get.getMockImplementation();
+    let savedReceipt;
+    api.get.mockImplementation((path, config) => {
+      if (path === `/sites/${site.id}/trips/${trip.id}/lrs`) {
+        return Promise.resolve({ data: { rows: savedReceipt ? [savedReceipt] : [], total: savedReceipt ? 1 : 0 } });
+      }
+      return defaultGet(path, config);
+    });
+    api.post.mockImplementation((path, body) => Promise.resolve({
+      data: path.endsWith("/lrs")
+        ? (savedReceipt = { ...body, id: "lr-hindi", lr_ref: "NGP-LR-02" }) : trip,
+    }));
+    await renderBooking("receipts");
+    await waitFor(() => expect(getByLabelText("Receiver name in English")).not.toBeNull());
+
+    await act(async () => {
+      setInput("Sender name in English", "Aniket");
+      setInput("Sender name in Hindi", "अनिकेत");
+      setInput("Receiver name in English", "Ashok Bogande");
+      setInput("Receiver name in Hindi", "अशोक बोगांडे");
+      setInput("Goods and description row 1", "Cement");
+      setInput("Quantity row 1", "1");
+    });
+    await clickButton("Save receipt");
+
+    const savedRequest = api.post.mock.calls.find(([path]) => path.endsWith("/lrs"))[1];
+    expect(savedRequest).toMatchObject({
+      sender_name: "Aniket",
+      sender_name_hindi_verified: "अनिकेत",
+      receiver_name: "Ashok Bogande",
+      receiver_name_hindi_verified: "अशोक बोगांडे",
+    });
+    expect(container.querySelector(".receipt-list-parties").textContent)
+      .toContain("अनिकेत → अशोक बोगांडे");
+    await clickButton("हिंदी");
+    await waitFor(() => expect(container.querySelector(".receipt-list-parties").textContent)
+      .toContain("अनिकेत → अशोक बोगांडे"));
   });
 
   it("reloads booking receipt controls and hides saved addresses and phone on older receipts", async () => {
@@ -648,7 +765,8 @@ describe("simple booking workflow", () => {
       { id: "lr-unpaid", lr_ref: "NGP-LR-UNPAID", receiver_name: "Asha", receiver_phone: "1111111111",
         rent: "100", hamali: "0", receipt_fee: "2", paid_total: "0", outstanding: "102",
         payment_status: "unpaid", goods_rows: [{ type: "Cement", quantity: 1 }] },
-      { id: "lr-partial", lr_ref: "NGP-LR-PARTIAL", sender_name_hindi: "अनीकेत",
+      { id: "lr-partial", lr_ref: "NGP-LR-PARTIAL", sender_name: "Aniket",
+        sender_name_hindi: "अनीकेत", receiver_name: "Suresh",
         receiver_name_hindi: "सुरेश", receiver_phone: "2222222222",
         rent: "100", hamali: "0", receipt_fee: "2", paid_total: "40", outstanding: "62",
         payment_status: "partial", goods_rows: [{ type: "Grain", type_hindi: "अनाज", quantity: 2 }] },
@@ -667,7 +785,7 @@ describe("simple booking workflow", () => {
       .find((summary) => summary.textContent.includes("₹40") && summary.textContent.includes("₹62"));
     expect(paymentSummary.children).toHaveLength(3);
     expect(Array.from(paymentSummary.querySelectorAll(".receipt-payment-metric"), (metric) =>
-      metric.querySelector("strong").textContent)).toEqual(["₹102", "₹40", "₹62"]);
+      metric.querySelector("strong").textContent)).toEqual(["", "₹40", "₹62"]);
     expect(paymentSummary.textContent).toContain("Due:");
     expect(container.textContent).toContain("Pending payment");
     expect(container.textContent).toContain("Partially paid");
@@ -676,9 +794,9 @@ describe("simple booking workflow", () => {
     const partialCard = Array.from(container.querySelectorAll(".receipt-list-card"))
       .find((card) => card.textContent.includes("NGP-LR-PARTIAL"));
     expect(partialCard.querySelector(".receipt-list-primary").textContent)
-      .toContain("NGP-LR-PARTIALअनीकेत → सुरेश");
+      .toContain("NGP-LR-PARTIALअनिकेत → सुरेश");
     expect(partialCard.querySelector(".receipt-list-primary").textContent).toContain("2222222222");
-    expect(partialCard.querySelector(".receipt-list-parties").textContent).toBe("अनीकेत → सुरेश");
+    expect(partialCard.querySelector(".receipt-list-parties").textContent).toBe("अनिकेत → सुरेश");
     expect(partialCard.querySelector(".receipt-list-goods").textContent).toContain("२ - अनाज");
     expect(partialCard.querySelector(".receipt-list-print-group .receipt-payment-status"))
       .toBeTruthy();
@@ -803,7 +921,6 @@ describe("simple booking workflow", () => {
     await act(async () => {
       setInput('[aria-label="Receiver name in English"]', "Suresh");
       setInput('[aria-label="Goods and description row 1"]', "Cement");
-      setInput('[aria-label="Goods in Hindi row 1"]', "सीमेंट की बोरी");
       setInput('[aria-label="Quantity row 1"]', "3");
       setInput('[aria-label="Receipt Bhada"]', "30.00");
       setInput('[aria-label="Receipt Hamali"]', "5.00");
@@ -824,11 +941,10 @@ describe("simple booking workflow", () => {
     expect(receiptRequest[1]).toMatchObject({
       sender_name: "",
       receiver_name: "Suresh",
-      receiver_name_hindi: "",
       receiver_phone: "9876543210",
       city: "Hinganghat",
       goods_rows: [{
-        type: "Cement", type_hindi: "सीमेंट की बोरी", description: "",
+        type: "Cement", type_hindi: "सीमेंट", description: "",
         description_hindi: "", quantity: 3,
       }],
       rent: "30.00",
@@ -845,7 +961,7 @@ describe("simple booking workflow", () => {
     expect(printedReceipt.textContent).toContain("9876543210");
     expect(printedReceipt.textContent).not.toContain("Old Sender Road");
     expect(printedReceipt.textContent).not.toContain("Old Receiver Road");
-    expect(printedReceipt.textContent).toContain("Suresh");
+    expect(printedReceipt.textContent).toContain("सुरेश");
     expect(printedReceipt.textContent).toContain("Mama Garage");
     expect(container.querySelector('[aria-label="Receiver name in English"]').value).toBe("");
     expect(container.querySelector('[aria-label="Goods and description row 1"]').value).toBe("");
@@ -1128,8 +1244,8 @@ describe("simple booking workflow", () => {
     expect(firstAttempt).toMatchObject({
       receiver_name: "Suresh",
       receiver_phone: "9876543210",
-      rent: "0",
-      hamali: "0",
+      rent: null,
+      hamali: null,
     });
     expect(api.post.mock.calls.filter(([path]) => path.endsWith("/lrs"))).toHaveLength(1);
   });

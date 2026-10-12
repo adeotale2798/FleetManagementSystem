@@ -301,6 +301,7 @@ input, select, textarea { color-scheme: light; }
 .transport-lr-contacts { z-index: 1; width: 54mm; flex: 0 0 54mm; text-align: right; font-size: 8pt; font-weight: 700; line-height: 1.15; }
 .transport-lr-contacts p { margin: 0 0 0.5mm; }
 .transport-lr-jurisdiction { max-width: 100%; margin: 0; font-size: 7.5pt; font-weight: 800; line-height: 1.1; text-align: left; overflow-wrap: anywhere; }
+.booking-workspace--receipts .receipt-form-card .fld { font-weight: 700; }
 .receipt-list-card { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.625rem 0.875rem; }
 .receipt-list-content { display: grid; min-width: 0; flex: 1; gap: 0.25rem; }
 .receipt-list-primary, .receipt-list-secondary { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.625rem; font-size: 0.875rem; line-height: 1.35; }
@@ -365,7 +366,7 @@ input, select, textarea { color-scheme: light; }
 .transport-lr-party-row { display: flex; min-height: 6mm; align-items: center; gap: 2mm; margin: 0; padding: 0.5mm 3mm; }
 .transport-lr-party-row + .transport-lr-party-row { border-top: 1px solid #bbb; }
 .transport-lr-party-row > .transport-lr-writing { min-width: 0; flex: 1; }
-.transport-lr-writing { font-family: "Noto Sans Devanagari", "Nirmala UI", Mangal, sans-serif; font-size: 12pt; font-style: italic; font-weight: 600; }
+.transport-lr-writing { font-family: "Noto Sans Devanagari", "Nirmala UI", Mangal, sans-serif; font-size: 12pt; font-style: normal; font-weight: 700; }
 .transport-lr-inline-contact { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 1.25mm; border-left: 1px solid #999; padding-left: 3mm; font-size: 10pt; font-weight: 800; white-space: nowrap; }
 .transport-lr-party-address { min-width: 0; font-size: 7.5pt; overflow-wrap: anywhere; }
 .transport-lr-details { display: flex; flex-wrap: wrap; gap: 0.5mm 5mm; border-bottom: 1px solid #222; padding: 1mm 3mm; font-size: 7.5pt; }
