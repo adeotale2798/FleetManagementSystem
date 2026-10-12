@@ -62,6 +62,9 @@ export function registerBookingTestHarness() {
       if (path === `/sites/${site.id}/ledger/entries`) {
         return Promise.resolve({ data: { rows: ledgerRows, total: ledgerRows.length } });
       }
+      if (path === `/sites/${site.id}/party-suggestions`) {
+        return Promise.resolve({ data: { senders: [], receivers: [] } });
+      }
       if (path === `/sites/${site.id}/trips/${trip.id}/lrs`) {
         return Promise.resolve({ data: { rows: receipts, total: receipts.length } });
       }

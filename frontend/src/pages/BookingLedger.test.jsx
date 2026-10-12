@@ -13,6 +13,119 @@ describe("simple booking workflow", () => {
     createLedgerRow, mockBookingApi, renderBooking, clearBooking, setInput } = registerBookingTestHarness();
 
   describe("ledger charge editing", () => {
+  it("keeps confirmed same-receiver receipts together and marks the names inline", async () => {
+    const rows = [
+      createLedgerRow({
+        id: "lr-one", lr_ref: "NGP-LR-01", sequence: 1,
+        receiver_name: "Ramesh", receiver_identity_id: "receiver-ramesh",
+      }),
+      createLedgerRow({
+        id: "lr-other", lr_ref: "NGP-LR-02", sequence: 2,
+        receiver_name: "Suresh", receiver_identity_id: "receiver-suresh",
+      }),
+      createLedgerRow({
+        id: "lr-two", lr_ref: "NGP-LR-03", sequence: 3,
+        receiver_name: "Ramesh", receiver_identity_id: "receiver-ramesh",
+      }),
+    ];
+    mockBookingApi({ trips: [trip], ledgerRows: rows });
+    await renderBooking("ledger", "owner");
+
+    const table = await screen.findByRole("table", { name: "Selected ledger totals" });
+    await waitFor(() => expect(container.querySelectorAll(".booking-ledger-table tbody tr"))
+      .toHaveLength(3));
+    const receiptRows = [...table.querySelectorAll("tbody tr")];
+    expect(receiptRows.map((row) =>
+      row.querySelector('[data-ledger-column="receipt"]').textContent)).toEqual([
+      "NGP-LR-01", "NGP-LR-03", "NGP-LR-02",
+    ]);
+    const receiverCells = receiptRows.map((row) => row.querySelector('[data-ledger-column="receiver"]'));
+    expect(receiverCells[0].textContent).toContain("रमेश");
+    expect(receiverCells[0].querySelector('[title="Ramesh"]')).not.toBeNull();
+    expect(receiverCells[0].querySelector('[aria-label="Confirmed same receiver"]')).not.toBeNull();
+    expect(receiverCells[1].querySelector('[aria-label="Confirmed same receiver"]')).not.toBeNull();
+    expect(receiverCells[2].textContent).toBe("सुरेश");
+    expect(receiverCells[2].querySelector('[title="Suresh"]')).not.toBeNull();
+    expect(receiverCells[2].querySelector('[aria-label="Confirmed same receiver"]')).toBeNull();
+
+    await act(async () => {
+      screen.getByRole("button", { name: "Print" }).click();
+      await flushMicrotasks();
+    });
+    const printRows = [...document.querySelectorAll(".booking-ledger-print tbody tr")];
+    expect(printRows.map((row) => row.children[1].textContent)).toEqual([
+      "NGP-LR-01", "NGP-LR-03", "NGP-LR-02",
+    ]);
+    const printReceiverCells = printRows.slice(0, 2).map((row) =>
+      [...row.children].find((cell) => cell.querySelector('[title="Ramesh"]')));
+    expect(printReceiverCells[0].textContent).toContain("रमेश");
+    expect(printReceiverCells[1].textContent).toContain("रमेश");
+    expect(printReceiverCells[0].querySelector('[aria-label="Confirmed same receiver"]')).not.toBeNull();
+    expect(printReceiverCells[1].querySelector('[aria-label="Confirmed same receiver"]')).not.toBeNull();
+    await act(async () => window.dispatchEvent(new Event("afterprint")));
+  });
+
+  it("shows Hindi party names in the ledger while keeping original spellings available", async () => {
+    const row = createLedgerRow({
+      sender_name: "Deepak Jadhav",
+      receiver_name: "Kasva General",
+    });
+    mockBookingApi({ trips: [trip], ledgerRows: [row] });
+    await renderBooking("ledger");
+
+    const table = await screen.findByRole("table", { name: "Selected ledger totals" });
+    await waitFor(() => expect(table.querySelector("tbody tr")).not.toBeNull());
+    const sender = table.querySelector('[data-ledger-column="sender"] span');
+    const receiver = table.querySelector('[data-ledger-column="receiver"] span');
+    expect(sender.textContent).toBe("दीपक जधव");
+    expect(sender.title).toBe("Deepak Jadhav");
+    expect(receiver.textContent).toBe("कस्वा जनरल");
+    expect(receiver.title).toBe("Kasva General");
+  });
+
+  it("lets an owner switch ledger party names to English for screen, print, and export", async () => {
+    const row = createLedgerRow({
+      sender_name: "Deepak Jadhav",
+      sender_name_hindi_verified: "दीपक जाधव",
+      receiver_name: "Kasva General",
+      receiver_name_hindi_verified: "कस्वा जनरल",
+    });
+    mockBookingApi({ trips: [trip], ledgerRows: [row] });
+    await renderBooking("ledger", "owner");
+
+    const table = await screen.findByRole("table", { name: "Selected ledger totals" });
+    await waitFor(() => expect(table.querySelector("tbody tr")).not.toBeNull());
+    const nameToggle = screen.getByRole("switch", { name: "Show English party names" });
+    const tableColumnsButton = screen.getByText("Table columns");
+    expect(Array.from(tableColumnsButton.parentElement.parentElement.children)).toContain(nameToggle);
+    expect(nameToggle.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(nameToggle);
+
+    await waitFor(() => {
+      expect(table.querySelector('[data-ledger-column="sender"]').textContent).toBe("Deepak Jadhav");
+      expect(table.querySelector('[data-ledger-column="receiver"]').textContent).toContain("Kasva General");
+    });
+    expect(nameToggle.getAttribute("aria-checked")).toBe("true");
+    expect(localStorage.getItem("booking_ledger_party_name_language:site-1:owner")).toBe("en");
+
+    await act(async () => {
+      screen.getByRole("button", { name: "Print" }).click();
+      await flushMicrotasks();
+    });
+    const printRow = document.querySelector(".booking-ledger-print tbody tr");
+    expect(printRow.textContent).toContain("Deepak Jadhav");
+    expect(printRow.textContent).toContain("Kasva General");
+    await act(async () => window.dispatchEvent(new Event("afterprint")));
+
+    await act(async () => {
+      screen.getByRole("button", { name: "Excel" }).click();
+      await flushMicrotasks();
+    });
+    const exportRequest = api.get.mock.calls.find(([path]) =>
+      path === `/sites/${site.id}/ledger/export.xlsx`);
+    expect(exportRequest[1].params.party_name_language).toBe("en");
+  });
+
   it("uses the server's latest row version for queued ledger edits", async () => {
     const row = createLedgerRow({
       sender_name: "Old sender", receiver_name: "Old receiver",
@@ -50,8 +163,13 @@ describe("simple booking workflow", () => {
     expect(within(ledgerTable).getByRole("columnheader", { name: "Hamali" })).not.toBeNull();
     expect(ledgerTable.querySelectorAll("input")).toHaveLength(2);
     expect(container.querySelector('[aria-label="NGP-LR-01 sender"]')).toBeNull();
-    expect(container.textContent).toContain("पुराना भेजने वाला");
-    expect(container.textContent).not.toContain("Old sender");
+    const senderName = ledgerTable.querySelector('[data-ledger-column="sender"] span');
+    const receiverName = ledgerTable.querySelector('[data-ledger-column="receiver"] span');
+    expect(senderName.title).toBe("Old sender");
+    expect(senderName.textContent).toMatch(/[\u0900-\u097f]/);
+    expect(receiverName.title).toBe("Old receiver");
+    expect(receiverName.textContent).toMatch(/[\u0900-\u097f]/);
+    expect(container.textContent).not.toContain("पुराना भेजने वाला");
     expect(ledgerTable.querySelector("tbody tr td:first-child").textContent).toBe("29-09-2026");
     expect(ledgerTable.querySelector("tbody tr td:nth-child(5)").textContent).toBe("१ - सीमेंट, ३ - अनाज");
     expect(ledgerTable.textContent).toContain("A-Owner");

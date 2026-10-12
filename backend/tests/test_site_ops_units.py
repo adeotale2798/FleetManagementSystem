@@ -53,6 +53,10 @@ def test_creation_metadata_records_login_identity_and_role():
     assert site_ops._ledger_hindi_text("Cement bag") == "सीमेंट बोरा"
     assert site_ops._ledger_hindi_text("gadi bhada") == "गाड़ी भाड़ा"
     assert site_ops._ledger_hindi_text("gaadi bhaada") == "गाड़ी भाड़ा"
+    assert site_ops._ledger_hindi_text("Kasva General") == "कस्वा जनरल"
+    assert site_ops._ledger_hindi_text("Deepak Jadhav") == "दीपक जधव"
+    assert site_ops._ledger_hindi_text("Rahul") == "राहुल"
+    assert site_ops._ledger_hindi_text("Chandnamal Hiralal") == "चंदनमल हीरालाल"
     assert site_ops._ledger_hindi_text("गाड़ी bhada") == "गाड़ी भाड़ा"
     assert site_ops._ledger_hindi_text("vehicle rent") == "गाड़ी भाड़ा"
     assert "created_by_id" not in site_ops._doc_for_user(
@@ -915,7 +919,9 @@ def test_site_lr_creation_stores_receipt_creation_time(monkeypatch):
     asyncio.run(site_ops.create_site_lr(
         "site-1", "trip-1",
         site_ops.LRCreate(
-            receiver_name="Suresh", sender_address="Main Road",
+            sender_name="Aniket", sender_name_hindi_verified="अनिकेत",
+            receiver_name="Suresh", receiver_name_hindi_verified="सुरेश",
+            sender_address="Main Road",
             sender_address_hindi="मेन रोड",
             goods_rows=[{
                 "type": "Cement", "quantity": 1, "description": "Bags",
@@ -928,10 +934,66 @@ def test_site_lr_creation_stores_receipt_creation_time(monkeypatch):
     assert inserted[0]["created_at"] == timestamp
     assert inserted[0]["receipt_created_at"] == timestamp
     assert inserted[0]["receipt_fee"] == Decimal128("5.00")
+    assert inserted[0]["sender_name_hindi_verified"] == "अनिकेत"
+    assert inserted[0]["receiver_name_hindi_verified"] == "सुरेश"
     assert inserted[0]["sender_address_hindi"] == "मेन रोड"
     assert inserted[0]["goods_rows"][0]["description_hindi"] == "बोरियाँ"
     assert inserted[0]["goods_rows"][0]["rent"] == Decimal128("0.00")
     assert inserted[0]["goods_rows"][0]["hamali"] == Decimal128("0.00")
+
+
+def test_site_party_suggestions_are_prefix_matched_deduplicated_and_site_scoped(monkeypatch):
+    site = {"_id": "site-1", "business_id": "business-1"}
+    captured = {}
+
+    class Cursor:
+        async def to_list(self, amount):
+            captured.setdefault("limits", []).append(amount)
+            if any("phone" in stage.get("$group", {})
+                   for stage in captured["pipelines"][-1]):
+                return [
+                    {"name": "Ramesh Jadhav", "phone": "9876543210"},
+                    {"name": "Ramesh Traders", "phone": "9123456780"},
+                ]
+            return [{"name": "Ramesh Transport"}]
+
+    class SiteLRs:
+        def aggregate(self, pipeline):
+            captured.setdefault("pipelines", []).append(pipeline)
+            return Cursor()
+
+    async def get_site(site_id, user, permission):
+        captured["authorization"] = (site_id, permission)
+        return site
+
+    monkeypatch.setattr(site_ops, "_site_for_user", get_site)
+    monkeypatch.setattr(site_ops, "db", SimpleNamespace(site_lrs=SiteLRs()))
+
+    result = asyncio.run(site_ops.list_site_party_suggestions(
+        "site-1", "r", {"role": "site_manager"},
+    ))
+
+    assert result == {
+        "senders": [{"name": "Ramesh Transport"}],
+        "receivers": [
+            {"name": "Ramesh Jadhav", "phone": "9876543210"},
+            {"name": "Ramesh Traders", "phone": "9123456780"},
+        ],
+    }
+    assert captured["authorization"] == ("site-1", "lrs:read")
+    assert len(captured["pipelines"]) == 2
+    for pipeline in captured["pipelines"]:
+        match = pipeline[0]["$match"]
+        assert match["business_id"] == "business-1"
+        assert match["site_id"] == "site-1"
+        assert match["voided"] == {"$ne": True}
+        field = pipeline[2]["$group"]["_id"]["$toLower"]["$trim"]["input"]
+        assert field in ("$sender_name", "$receiver_name")
+        assert match[field[1:]] == {
+            "$regex": "^r", "$options": "i",
+        }
+        assert pipeline[4] == {"$limit": 50}
+    assert captured["limits"] == [50, 50]
 
 
 def test_booking_receipt_requires_at_least_one_nonempty_goods_row():
@@ -940,6 +1002,17 @@ def test_booking_receipt_requires_at_least_one_nonempty_goods_row():
             sender_name="Ramesh", receiver_name="Suresh",
             goods_rows=[], rent="0", hamali="0",
         )
+
+
+def test_verified_party_hindi_names_require_devanagari_text():
+    with pytest.raises(ValidationError, match="Hindi party names must include Devanagari text"):
+        site_ops.LRCreate(
+            receiver_name="Suresh",
+            sender_name_hindi_verified="Aniket",
+            goods_rows=[{"type": "Cement", "quantity": 1}],
+        )
+    with pytest.raises(ValidationError, match="Hindi party names must include Devanagari text"):
+        site_ops.LRUpdate(receiver_name_hindi_verified="Ashok")
 
 
 def test_document_serializer_preserves_top_level_identifier():
@@ -1376,8 +1449,10 @@ def test_site_ledger_xlsx_omits_addresses_and_exports_hindi_ledger_values(monkey
     lr = {
         "_id": "lr-1", "business_id": "business-1", "site_id": "site-1",
         "trip_id": "trip-1", "lr_ref": "NGPLR29092026-01", "receipt_date": "2026-09-29",
-        "sender_name": "Sender", "sender_name_hindi": "भेजने वाला", "sender_address": "Hidden sender address",
-        "receiver_name": "Receiver", "receiver_name_hindi": "प्राप्तकर्ता",
+        "sender_name": "Aniket", "sender_name_hindi": "अम्बिक",
+        "sender_name_hindi_verified": "अनिकेत", "sender_address": "Hidden sender address",
+        "receiver_name": "Kasva General", "receiver_name_hindi": "अम्बिक",
+        "receiver_name_hindi_verified": "",
         "receiver_address": "Hidden receiver address", "rent": Decimal("100.00"),
         "hamali": Decimal("10.00"), "charge_updated_by_role": "site_manager",
         "created_by_name": "Saoji", "created_by_role": "site_manager",
@@ -1437,8 +1512,8 @@ def test_site_ledger_xlsx_omits_addresses_and_exports_hindi_ledger_values(monkey
         "कुल मात्रा", "भाड़ा", "हमाली", "रसीद शुल्क", "कुल रकम", "Amount paid",
     ]
     assert sheet["A2"].value == "Trip number: NGP29092026-01"
-    assert sheet["C5"].value == "भेजने वाला"
-    assert sheet["D5"].value == "प्राप्तकर्ता"
+    assert sheet["C5"].value == "अनिकेत"
+    assert sheet["D5"].value == "कस्वा जनरल"
     assert sheet["E5"].value == "२ - हार्डवेयर/औज़ार, १० - सीमेंट बोरी, ३० - अनाज डिब्बा"
     assert sheet["F5"].value == 42
     assert sheet["G5"].value == 100
@@ -1477,6 +1552,17 @@ def test_site_ledger_xlsx_omits_addresses_and_exports_hindi_ledger_values(monkey
     assert selected_sheet["D5"].value == "२ - हार्डवेयर/औज़ार, १० - सीमेंट बोरी, ३० - अनाज डिब्बा"
     assert selected_sheet["E5"].value == 42
     assert selected_sheet["F5"].value == 100
+
+    english_response = asyncio.run(site_ops.export_site_ledger_xlsx(
+        "site-1", "2026-09-29", "2026-09-29", "trip-1",
+        {"username": "owner", "role": "owner"},
+        party_name_language="en",
+    ))
+    english_sheet = load_workbook(
+        io.BytesIO(english_response.body), data_only=True,
+    )["बही"]
+    assert english_sheet["C5"].value == "Aniket"
+    assert english_sheet["D5"].value == "Kasva General"
 
 
 def test_lr_models_accept_contact_phones():
@@ -1676,6 +1762,34 @@ def test_owner_can_edit_a_paid_receipt_without_receiver_correction_reason(monkey
     assert result["sender_name"] == "Updated sender"
     assert result["receiver_name"] == "Receiver"
     assert lr["sender_name"] == "Updated sender"
+
+
+def test_site_manager_cannot_clear_bhada_below_recorded_payments(monkeypatch):
+    site = {"_id": "site-1", "business_id": "business-1"}
+    trip = {"_id": "trip-1", "status": "open", "operating_date": "2026-09-27"}
+    lr = {
+        "_id": "lr-1", "party_id": "party-1", "trip_id": "trip-1",
+        "lr_ref": "N-LR-1", "operating_date": "2026-09-27",
+        "sender_name": "Sender", "receiver_name": "Receiver",
+        "rent": Decimal128("100.00"), "hamali": Decimal128("0.00"),
+        "reconciled": False,
+    }
+    monkeypatch.setattr(site_ops, "_site_for_user", _async_value(site))
+    monkeypatch.setattr(site_ops, "_trip", _async_value(trip))
+    monkeypatch.setattr(site_ops, "_lr", _async_value(lr))
+    monkeypatch.setattr(
+        site_ops, "_payments_by_lr", _async_value({"lr-1": Decimal("10.00")}),
+    )
+
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(site_ops.update_site_lr(
+            "site-1", "trip-1", "lr-1",
+            site_ops.LRUpdate(rent=None, idempotency_key="clear-bhada-1"),
+            {"role": "site_manager", "username": "manager"},
+        ))
+
+    assert error.value.status_code == 409
+    assert "payments already recorded" in str(error.value.detail)
 
 
 def test_locked_trip_ledger_rejects_receipt_edits_even_for_owner(monkeypatch):

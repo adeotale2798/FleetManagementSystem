@@ -21,9 +21,53 @@ New features and architecture changes also require updates to [APP_SUMMARY.md](A
 
 ## Current version
 
-**v1.29.0** — 10 October 2026
+**v1.34.1** — 12 October 2026
 
 ## Changelog
+
+### v1.34.1 — 12 October 2026
+
+- **Compact ledger toolbar:** Moved the owner-only Hindi/English party-name toggle beside the Table columns control, reducing vertical space while retaining its saved preference and screen/print/export behavior.
+- **Verification:** Ledger toggle layout and behavior regression test, frontend build, backend site-operations tests, and `git diff --check` pass.
+
+### v1.34.0 — 12 October 2026
+
+- **Admin ledger name-language toggle:** Owners can switch sender/receiver names between Hindi and their original English spellings. The preference is saved per owner and site on the current device and applies to the ledger table, mobile cards, print view, and Excel export. Hindi remains the default; verified Hindi names and transliteration are unchanged when Hindi is selected.
+- **Conversion QA:** Added examples from reported names and backend export tests for both languages. Transliteration remains a phonetic aid rather than authoritative spelling; review all live customer names only within an explicitly selected, authorized site.
+- **Verification:** Focused ledger/frontend tests, backend site-operations tests, production build, and whitespace checks pass.
+
+### v1.33.1 — 12 October 2026
+
+- **Hindi party names across booking screens:** Receipt lists now show Hindi party names even when the app's general language is English. Hindi receipts use verified spellings first, then transliteration instead of silently falling back to Latin script. English receipt printing remains English.
+- **Better common-name spellings:** Added explicit spellings for names and surnames visible in the reported examples, including Deepak Jadhav, Kasva General, Rahul, Aniket, Chandnamal Hiralal, Chandani, and Patil. The original entered spelling remains available by hover in the app.
+- **Verification:** Added regression coverage for Hindi receipt-list and print output, English print mode, and example transliteration cases.
+
+### v1.33.0 — 12 October 2026
+
+- **Ledger party names in Hindi:** The ledger table, print view, and XLSX export display sender and receiver names in Devanagari even when the page's general display language is English. Explicit verified spellings take precedence; other Latin-script names use phonetic transliteration. In the UI, the original spelling remains available as a tooltip. English receipts/lists continue to preserve the entered name.
+- **Usable keyboard suggestions:** Up/Down navigation now visibly advances the highlighted goods suggestion and scrolls it into view; Enter selects that active option.
+- **Verification:** Added ledger transliteration and arrow-navigation regression tests; focused frontend/backend checks and production build pass.
+
+### v1.32.0 — 12 October 2026
+
+- **Hindi party names:** Restored Hindi sender/receiver names for Hindi receipts, lists, and ledger displays without guessing at transliteration. Receipt entry includes optional Hindi-script name fields; those verified values are saved separately from legacy name fields, printed in Hindi mode, and retained in exports. English mode continues to show the original name.
+- **Safe legacy handling:** Unverified legacy Hindi fields are not used for display because some contain inaccurate transliterations. Existing receipts can be edited to enter and save the correct Hindi spelling. Hindi name fields reject input without Devanagari text.
+- **Verification:** Added coverage for saving and displaying user-verified Hindi names, English-mode preservation, and rejecting unverified legacy variants.
+
+### v1.31.0 — 12 October 2026
+
+- **Site-wide party suggestions:** Sender and receiver name suggestions now search all non-voided saved receipts across the selected site, not just the selected trip. Prefix matching works from the first typed character; receiver suggestions can restore a saved phone number. Suggestions are tenant/site-scoped and limited to 50 distinct names per role.
+- **Party-name spelling:** Names such as “Kasva General” remain in the original English/Hinglish spelling; they are not guessed or transliterated into inaccurate Hindi. The existing goods dictionary remains responsible for goods translations.
+- **Verification:** Added frontend and backend coverage for cross-trip suggestions, prefix matching, receiver phone reuse, deduplication, authorization, and site scoping.
+
+### v1.30.0 — 10 October 2026
+
+- **Clearer receipt entry:** Removed the duplicate Hindi goods-name field and Hindi party-name fields. Sender and receiver names remain exactly as entered in English/Hinglish instead of displaying a potentially incorrect transliteration. Existing receipt Hindi fields remain readable for compatibility but are no longer used to override party names.
+- **Faster party entry:** Both sender and receiver fields now offer saved names from the selected trip's receipts using their native prefix-matching suggestions; selecting a saved receiver still fills its phone number.
+- **Blank optional charges:** Bhada and Hamali start empty and are saved as unentered when left blank. The printable receipt leaves unentered/zero charge cells blank and shows a combined total only after both charges have values. Existing finance, collection, and receipt-fee calculations remain unchanged.
+- **Reliable edits and receiver grouping:** Saving an LR refreshes the receipt/trip data and a matching loaded ledger. The ledger keeps confirmed same-receiver receipts together using the persisted receiver identity and marks them inline without adding a summary row; unconfirmed identities remain separate.
+- **Readability:** Receipt-entry fields and printed receipt values are bold.
+- **Verification:** 61 focused frontend tests and 100 backend site-operations unit tests pass; the production frontend build succeeds and `git diff --check` passes.
 
 ### v1.29.0 — 10 October 2026
 

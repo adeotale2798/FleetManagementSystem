@@ -10,6 +10,7 @@ import { api, assetUrl, errMsg } from "../lib/api";
 import { Btn, Card, ErrorState, Loader, PageHead, toast } from "../components/ui";
 import { dmy, dmyDateTime, todayISO } from "../lib/format";
 import { DEFAULT_BOOKING_GOODS } from "../lib/bookingGoods";
+import { partyName } from "../lib/partyNames";
 import transportHindiDictionary from "../lib/transportHindiDictionary.json";
 import { DATA_CHANGE_EVENT } from "../lib/realtime";
 import TransportReceipt from "../components/TransportReceipt";
@@ -38,6 +39,8 @@ const ALL_LEDGER_COLUMN_KEYS = [
 ];
 const ledgerColumnStorageKey = (siteId) => `booking_ledger_columns:${encodeURIComponent(siteId)}`;
 const ledgerColumnWidthsStorageKey = (siteId) => `booking_ledger_column_widths:${encodeURIComponent(siteId)}`;
+const ledgerPartyNameLanguageStorageKey = (siteId, username) =>
+  `booking_ledger_party_name_language:${encodeURIComponent(siteId)}:${encodeURIComponent(username)}`;
 const minimumLedgerColumnWidth = (key) => ({
   date: 100, receipt: 170, sender: 90, receiver: 90, goods: 220,
   quantity: 95, bhada: 100, hamali: 100, receiptFee: 85, amountPaid: 125,
@@ -463,6 +466,8 @@ function readReceiptDraft(key) {
     }
     return { draft: {
       ...saved.form,
+      rent: saved.form.rent === "0" ? "" : saved.form.rent,
+      hamali: saved.form.hamali === "0" ? "" : saved.form.hamali,
       goods_rows: saved.form.goods_rows.map((line) => ({
         ...line, quantity: String(line.quantity ?? ""),
       })),
@@ -475,6 +480,10 @@ function readReceiptDraft(key) {
 function amountInput(value) {
   if (value == null || value === "") return "";
   return String(value).replace(/(?:\.0+|(\.\d*?)0+)$/, "$1");
+}
+
+function chargeInput(value) {
+  return enteredCharge(value) == null ? "" : amountInput(value);
 }
 
 function getGoodsRows(receipt) {
@@ -514,12 +523,30 @@ function hindiText(hindi, english) {
   return isHindi(hindi) ? hindi : romanHindi(english || hindi || "");
 }
 
-function hindiName(hindi, english) {
-  return isHindi(hindi) ? hindi : english || hindi || "";
-}
-
 function hindiDigits(value) {
   return String(value ?? "").replace(/[0-9]/g, (digit) => "०१२३४५६७८९"[Number(digit)]);
+}
+
+function enteredCharge(value) {
+  if (value == null || value === "") return null;
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount > 0 ? amount : null;
+}
+
+function receiptTotalIfComplete(rent, hamali, receiptFee) {
+  const rentAmount = enteredCharge(rent);
+  const hamaliAmount = enteredCharge(hamali);
+  if (rentAmount == null || hamaliAmount == null) return null;
+  return rentAmount + hamaliAmount + (Number(receiptFee) || 0);
+}
+
+function receiptTotalLabel(receipt) {
+  const total = receiptTotalIfComplete(receipt.rent, receipt.hamali, receipt.receipt_fee ?? 2);
+  return total == null ? "" : money(total);
+}
+
+function chargeLabel(value) {
+  return enteredCharge(value) == null ? "" : money(value);
 }
 
 function hindiLedgerGoodsLine(line) {
@@ -550,8 +577,9 @@ function ReceiptPrint({ receipt, trip, site, branding, showCharges, controls, ac
     logo_url: assetUrl(branding?.logo || configured.logo_url || ""),
     contacts,
   };
-  const total = receipt.total_rent ?? Number(receipt.rent || 0) + Number(receipt.hamali || 0)
-    + Number(receipt.receipt_fee ?? 2);
+  const total = receiptTotalIfComplete(
+    receipt.rent, receipt.hamali, receipt.receipt_fee ?? 2,
+  );
   return (
     <div className="booking-print-target" data-active={active ? "true" : "false"}
       data-print-size={printSize}>
@@ -600,10 +628,10 @@ function ReceiptForm({
   const [form, setForm] = useState(() => receipt ? {
     receipt_date: receipt.receipt_date || receipt.operating_date || trip.operating_date,
     sender_name: receipt.sender_name || "",
-    sender_name_hindi: receipt.sender_name_hindi || "",
+    sender_name_hindi_verified: receipt.sender_name_hindi_verified || "",
     sender_address: receipt.sender_address || "",
     receiver_name: receipt.receiver_name || "",
-    receiver_name_hindi: receipt.receiver_name_hindi || "",
+    receiver_name_hindi_verified: receipt.receiver_name_hindi_verified || "",
     receiver_address: receipt.receiver_address || "", receiver_phone: receipt.receiver_phone || "",
     goods_rows: getGoodsRows(receipt).map((line) => ({
       ...line,
@@ -612,11 +640,13 @@ function ReceiptForm({
       description: "",
       description_hindi: "",
     })),
-    rent: receipt.rent ?? "0", hamali: receipt.hamali ?? "0",
+    rent: enteredCharge(receipt.rent) == null ? "" : amountInput(receipt.rent),
+    hamali: enteredCharge(receipt.hamali) == null ? "" : amountInput(receipt.hamali),
   } : {
-    receipt_date: trip.operating_date, sender_name: "", sender_name_hindi: "", sender_address: "",
-    receiver_name: "", receiver_name_hindi: "", receiver_address: "", receiver_phone: "",
-    goods_rows: blankGoods(), rent: "0", hamali: "0",
+    receipt_date: trip.operating_date, sender_name: "", sender_name_hindi_verified: "",
+    sender_address: "", receiver_name: "", receiver_name_hindi_verified: "",
+    receiver_address: "", receiver_phone: "",
+    goods_rows: blankGoods(), rent: "", hamali: "",
   });
   const [error, setError] = useState("");
   const [activeGoodsRow, setActiveGoodsRow] = useState(-1);
@@ -626,6 +656,58 @@ function ReceiptForm({
   const savingRef = useRef(false);
   const [saveKey] = useState(keyForRequest);
   const senderNameInput = useRef(null);
+  const [sitePartyNames, setSitePartyNames] = useState({ senders: [], receivers: [] });
+  const [activePartyField, setActivePartyField] = useState("");
+  const [partySuggestionsError, setPartySuggestionsError] = useState("");
+  const senderNames = [...new Set([
+    ...previousReceipts.map((item) => item.sender_name),
+    ...sitePartyNames.senders.map((item) => item.name),
+  ].filter(Boolean))];
+  const receiverOptions = [...previousReceipts.map((item) => ({
+    name: item.receiver_name, phone: item.receiver_phone || "",
+  })), ...sitePartyNames.receivers].reduce((options, item) => {
+    if (!item.name) return options;
+    const existing = options.find((option) =>
+      option.name.toLocaleLowerCase() === item.name.toLocaleLowerCase());
+    if (existing) {
+      if (!existing.phone && item.phone) existing.phone = item.phone;
+    } else {
+      options.push({ name: item.name, phone: item.phone || "" });
+    }
+    return options;
+  }, []);
+  const receiverNames = receiverOptions.map((item) => item.name);
+  useEffect(() => {
+    if (!activePartyField) return undefined;
+    const query = activePartyField === "sender" ? form.sender_name : form.receiver_name;
+    if (!query.trim()) return undefined;
+    let current = true;
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await api.get(`/sites/${trip.site_id}/party-suggestions`, {
+          params: { q: query.trim() },
+        });
+        if (!current) return;
+        const data = response.data || {};
+        setSitePartyNames((existing) => ({
+          senders: [...existing.senders, ...(Array.isArray(data.senders) ? data.senders : [])],
+          receivers: [...existing.receivers, ...(Array.isArray(data.receivers) ? data.receivers : [])],
+        }));
+        setPartySuggestionsError("");
+      } catch (requestError) {
+        if (current) setPartySuggestionsError(errMsg(requestError));
+      }
+    }, 180);
+    return () => {
+      current = false;
+      window.clearTimeout(timer);
+    };
+  }, [activePartyField, form.receiver_name, form.sender_name, trip.site_id]);
+  useEffect(() => {
+    if (activeGoodsRow < 0 || activeGoodsSuggestion < 0) return;
+    document.getElementById(`goods-suggestions-${activeGoodsRow + 1}-option-${activeGoodsSuggestion}`)
+      ?.scrollIntoView?.({ block: "nearest" });
+  }, [activeGoodsRow, activeGoodsSuggestion]);
   useEffect(() => {
     if (!receipt) return;
     const input = senderNameInput.current;
@@ -638,7 +720,8 @@ function ReceiptForm({
       form.sender_name.trim() || form.sender_address.trim() || form.receiver_name.trim()
       || form.receiver_address.trim() || form.receiver_phone
       || form.goods_rows.some((line) => line.type.trim() || line.quantity)
-      || form.rent !== "0" || form.hamali !== "0"
+      || form.sender_name_hindi_verified.trim() || form.receiver_name_hindi_verified.trim()
+      || form.rent !== "" || form.hamali !== ""
       || form.receipt_date !== trip.operating_date
     );
     try {
@@ -695,6 +778,13 @@ function ReceiptForm({
       printAfterSave.current = false;
       return;
     }
+    if ((form.sender_name_hindi_verified && !isHindi(form.sender_name_hindi_verified))
+      || (form.receiver_name_hindi_verified && !isHindi(form.receiver_name_hindi_verified))) {
+      setError(t("Enter party names in Devanagari script in the Hindi name fields.",
+        "हिंदी नाम वाले फ़ील्ड में नाम देवनागरी लिपि में लिखें।"));
+      printAfterSave.current = false;
+      return;
+    }
     if (goods.some((line) => !Number.isInteger(Number(line.quantity)) || Number(line.quantity) <= 0)) {
       setError(t("Goods quantity must be a whole number greater than zero.",
         "सामान की मात्रा शून्य से बड़ी पूरी संख्या होनी चाहिए।"));
@@ -712,9 +802,9 @@ function ReceiptForm({
     const body = {
       receipt_date: receipt ? form.receipt_date : trip.operating_date,
       sender_name: form.sender_name.trim(),
-      sender_name_hindi: form.sender_name_hindi.trim(),
+      sender_name_hindi_verified: form.sender_name_hindi_verified.trim(),
       receiver_name: form.receiver_name.trim(),
-      receiver_name_hindi: form.receiver_name_hindi.trim(),
+      receiver_name_hindi_verified: form.receiver_name_hindi_verified.trim(),
       city: "Hinganghat",
       ...(receiverPhoneEnabled ? { receiver_phone: form.receiver_phone.trim() } : {}),
       ...(senderAddressEnabled ? {
@@ -733,9 +823,9 @@ function ReceiptForm({
         quantity: Number(line.quantity),
       })),
       ...(canEditFinance ? {
-        rent: form.rent === "" ? "0" : form.rent || "0",
-        hamali: form.hamali === "" ? "0" : form.hamali || "0",
-      } : {}),
+        rent: form.rent === "" ? null : form.rent,
+        hamali: form.hamali === "" ? null : form.hamali,
+      } : !receipt ? { rent: null, hamali: null } : {}),
       ...(matchChoice ? {
         receiver_match_action: matchChoice.action,
         ...(matchChoice.identityId ? { receiver_identity_id: matchChoice.identityId } : {}),
@@ -774,10 +864,10 @@ function ReceiptForm({
       setSaving(false);
     }
   };
-  const rentTotal = Number(form.rent) || 0;
-  const hamaliTotal = Number(form.hamali) || 0;
+  const rentTotal = enteredCharge(form.rent);
+  const hamaliTotal = enteredCharge(form.hamali);
   const fee = receipt ? Number(receipt.receipt_fee) || 0 : receiptFee;
-  const total = rentTotal + hamaliTotal + fee;
+  const total = receiptTotalIfComplete(form.rent, form.hamali, fee);
 
   return (
     <Card className="receipt-form-card p-4 sm:p-5">
@@ -834,7 +924,12 @@ function ReceiptForm({
         <div className="grid gap-3 md:grid-cols-3">
           <label><span className="lbl flex items-center gap-2"><UserRound size={16} aria-hidden="true" />{t("Sender (optional)", "भेजने वाला (ज़रूरी नहीं)")}</span><input className={field} aria-label={t("Sender name in English", "भेजने वाले का नाम")}
             ref={senderNameInput}
-            value={form.sender_name} onChange={(event) => patch({ sender_name: event.target.value })} /></label>
+            list={senderNames.length ? "previous-sender-options" : undefined}
+            value={form.sender_name} onFocus={() => setActivePartyField("sender")}
+            onChange={(event) => patch({ sender_name: event.target.value })} />
+            {senderNames.length > 0 && <datalist id="previous-sender-options">
+              {senderNames.map((name) => <option key={name} value={name} />)}
+            </datalist>}</label>
           <label><span className="lbl">{t("Receipt date", "रसीद की तारीख")}</span><input className={field} type="date" required
             disabled={!receipt} value={receipt ? form.receipt_date : trip.operating_date}
             onChange={(event) => patch({ receipt_date: event.target.value })} /></label>
@@ -845,20 +940,25 @@ function ReceiptForm({
         </div>
         <div className={`grid gap-3 ${receiverPhoneEnabled ? "md:grid-cols-2" : ""}`}>
           <label><span className="lbl flex items-center gap-2"><UserRound size={16} aria-hidden="true" />{t("Receiver *", "प्राप्तकर्ता *")}</span><input className={field} required aria-label={t("Receiver name in English", "प्राप्तकर्ता का नाम")}
-            list={!receipt && previousReceipts.length ? "previous-receiver-options" : undefined}
+            list={receiverNames.length ? "previous-receiver-options" : undefined}
+            onFocus={() => setActivePartyField("receiver")}
             value={form.receiver_name} onChange={(event) => {
               const value = event.target.value;
-              const savedReceiver = previousReceipts.find((item) =>
-                item.receiver_name?.toLocaleLowerCase() === value.trim().toLocaleLowerCase());
+              const savedReceiver = receiverOptions.find((item) =>
+                item.name.toLocaleLowerCase() === value.trim().toLocaleLowerCase());
               patch({
                 receiver_name: value,
-                ...(savedReceiver ? { receiver_phone: savedReceiver.receiver_phone || "" } : {}),
+                ...(savedReceiver ? { receiver_phone: savedReceiver.phone || "" } : {}),
               });
             }} />
-            {!receipt && previousReceipts.length > 0 && <datalist id="previous-receiver-options">
-              {[...new Set(previousReceipts.map((item) => item.receiver_name).filter(Boolean))].map((name) =>
+            {receiverNames.length > 0 && <datalist id="previous-receiver-options">
+              {receiverNames.map((name) =>
                 <option key={name} value={name} />)}
             </datalist>}
+            {partySuggestionsError && <span role="alert" className="mt-1 block text-xs text-red-700">
+              {t("Saved party names could not be loaded: ", "पहले सेव किए गए नाम लोड नहीं हुए: ")}
+              {partySuggestionsError}
+            </span>}
           </label>
           {receiverPhoneEnabled && <label>
             <span className="lbl flex items-center gap-2"><Phone size={16} aria-hidden="true" />{t("Receiver phone (10 digits, optional)", "प्राप्तकर्ता का फ़ोन (10 अंक, ज़रूरी नहीं)")}</span>
@@ -868,15 +968,17 @@ function ReceiptForm({
           </label>}
         </div>
         <div className="grid gap-3 md:grid-cols-2">
-          <label><span className="lbl">{t("Sender name in Hindi (optional)", "भेजने वाले का नाम हिंदी में (ज़रूरी नहीं)")}</span>
-            <input className={field} aria-label="Sender name in Hindi"
-              value={form.sender_name_hindi}
-              onChange={(event) => patch({ sender_name_hindi: event.target.value })} />
+          <label>
+            <span className="lbl">{t("Sender name in Hindi (optional)", "भेजने वाले का नाम हिंदी में (ज़रूरी नहीं)")}</span>
+            <input className={field} lang="hi" aria-label={t("Sender name in Hindi", "भेजने वाले का नाम हिंदी में")}
+              value={form.sender_name_hindi_verified}
+              onChange={(event) => patch({ sender_name_hindi_verified: event.target.value })} />
           </label>
-          <label><span className="lbl">{t("Receiver name in Hindi (optional)", "प्राप्तकर्ता का नाम हिंदी में (ज़रूरी नहीं)")}</span>
-            <input className={field} aria-label="Receiver name in Hindi"
-              value={form.receiver_name_hindi}
-              onChange={(event) => patch({ receiver_name_hindi: event.target.value })} />
+          <label>
+            <span className="lbl">{t("Receiver name in Hindi (optional)", "प्राप्तकर्ता का नाम हिंदी में (ज़रूरी नहीं)")}</span>
+            <input className={field} lang="hi" aria-label={t("Receiver name in Hindi", "प्राप्तकर्ता का नाम हिंदी में")}
+              value={form.receiver_name_hindi_verified}
+              onChange={(event) => patch({ receiver_name_hindi_verified: event.target.value })} />
           </label>
         </div>
         {senderAddressEnabled && <label className="block"><span className="lbl flex items-center gap-2"><MapPin size={16} aria-hidden="true" />{t("Sender address (optional)", "भेजने वाले का पता (ज़रूरी नहीं)")}</span><input className={field} aria-label={t("Sender address (optional)", "भेजने वाले का पता (ज़रूरी नहीं)")} list="sender-address-options"
@@ -972,7 +1074,7 @@ function ReceiptForm({
                       id={`${listId}-option-${suggestionIndex}`} type="button" role="option"
                       aria-selected={activeGoodsSuggestion === suggestionIndex}
                       className={`block w-full px-3 py-2 text-left text-slate-900 hover:bg-emerald-50 focus:bg-emerald-50 ${
-                        activeGoodsSuggestion === suggestionIndex ? "bg-emerald-50" : ""}`}
+                        activeGoodsSuggestion === suggestionIndex ? "bg-emerald-50 ring-1 ring-inset ring-emerald-500" : ""}`}
                       aria-label={suggestion.hindi}
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => selectGoodsSuggestion(index, suggestion)}>
@@ -985,13 +1087,6 @@ function ReceiptForm({
                     </button>)}
                   </div>}
                 </span>
-              </label>
-              <label className="col-start-2 row-start-2 block min-w-0">
-                <span className="lbl">{t("Goods in Hindi", "सामान हिंदी में")} · {index + 1}</span>
-                <input className={`${field} min-h-11 bg-white text-slate-900`}
-                  aria-label={`Goods in Hindi row ${index + 1}`}
-                  value={line.type_hindi}
-                  onChange={(event) => changeGoods(index, "type_hindi", event.target.value)} />
               </label>
               <button type="button" aria-label={`${t("Remove goods row", "सामान हटाएँ")} ${index + 1}`} className="col-start-3 row-start-1 self-end rounded-lg p-2 text-muted hover:bg-red-50 hover:text-red-700"
                 onClick={() => {
@@ -1024,12 +1119,12 @@ function ReceiptForm({
         <section className="receipt-total-summary">
           <h3 className="receipt-total-heading"><IconLabel icon={Receipt}>{t("Receipt total", "रसीद का हिसाब")}</IconLabel></h3>
           <div className="receipt-total-breakdown">
-            <p><IconLabel icon={Banknote}>{t("Bhada:", "भाड़ा:")}</IconLabel> <strong>{money(rentTotal)}</strong></p>
-            <p><IconLabel icon={Banknote}>{t("Hamali:", "हमाली:")}</IconLabel> <strong>{money(hamaliTotal)}</strong></p>
+            <p><IconLabel icon={Banknote}>{t("Bhada:", "भाड़ा:")}</IconLabel> <strong>{rentTotal == null ? "" : money(rentTotal)}</strong></p>
+            <p><IconLabel icon={Banknote}>{t("Hamali:", "हमाली:")}</IconLabel> <strong>{hamaliTotal == null ? "" : money(hamaliTotal)}</strong></p>
             <p><IconLabel icon={Receipt}>{t("Receipt fee:", "रसीद शुल्क:")}</IconLabel> <strong>{money(fee)}</strong> {t("(fixed)", "(तय)")}</p>
           </div>
           <p className="receipt-grand-total">
-            <IconLabel icon={Receipt}>{t("Total amount", "कुल रकम")}</IconLabel><span>{money(total)}</span>
+            <IconLabel icon={Receipt}>{t("Total amount", "कुल रकम")}</IconLabel><span>{total == null ? "" : money(total)}</span>
           </p>
         </section>
         <div className="receipt-form-actions sticky bottom-0 z-10 -mx-4 flex flex-col gap-2 border-t border-line bg-white/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_20px_rgba(16,24,40,0.08)] backdrop-blur sm:static sm:mx-0 sm:flex-row sm:gap-3 sm:border-0 sm:bg-transparent sm:p-0 sm:pt-0 sm:shadow-none sm:backdrop-blur-none">
@@ -1073,6 +1168,7 @@ export default function Booking({ user }) {
       : location.pathname.endsWith("/finance") ? "finance"
         : location.pathname.endsWith("/audit") ? "audit" : "dashboard";
   const owner = user?.role === "owner";
+  const ledgerPreferenceUsername = user?.username || user?.id || "owner";
   const [language, setLanguage] = useState(() =>
     localStorage.getItem("booking_language") === "hi" ? "hi" : "en");
   const t = (english, hindi) => language === "hi" ? hindi : english;
@@ -1130,6 +1226,9 @@ export default function Booking({ user }) {
   const [ledgerColumnWidths, setLedgerColumnWidths] = useState(DEFAULT_LEDGER_COLUMN_WIDTHS);
   const [ledgerColumnPreferencesSite, setLedgerColumnPreferencesSite] = useState("");
   const [ledgerColumnPreferenceError, setLedgerColumnPreferenceError] = useState("");
+  const [ledgerPartyNameLanguage, setLedgerPartyNameLanguage] = useState("hi");
+  const [ledgerPartyNameLanguagePreferencesSite, setLedgerPartyNameLanguagePreferencesSite] = useState("");
+  const [ledgerPartyNameLanguagePreferenceError, setLedgerPartyNameLanguagePreferenceError] = useState("");
   const ledgerColumnPicker = useRef(null);
   const ledgerTableContainer = useRef(null);
   const draggedLedgerColumn = useRef("");
@@ -1163,7 +1262,30 @@ export default function Booking({ user }) {
     setLedgerColumnKeys(readLedgerColumnKeys(siteId));
     setLedgerColumnWidths(readLedgerColumnWidths(siteId));
     setLedgerColumnPreferencesSite(siteId);
-  }, [siteId]);
+    try {
+      const savedLanguage = localStorage.getItem(
+        ledgerPartyNameLanguageStorageKey(siteId, ledgerPreferenceUsername),
+      );
+      setLedgerPartyNameLanguage(savedLanguage === "en" ? "en" : "hi");
+      setLedgerPartyNameLanguagePreferenceError("");
+    } catch {
+      setLedgerPartyNameLanguage("hi");
+      setLedgerPartyNameLanguagePreferenceError("Party-name language preference could not be loaded from this device.");
+    }
+    setLedgerPartyNameLanguagePreferencesSite(siteId);
+  }, [ledgerPreferenceUsername, siteId]);
+  useEffect(() => {
+    if (!owner || !siteId || ledgerPartyNameLanguagePreferencesSite !== siteId) return;
+    try {
+      localStorage.setItem(
+        ledgerPartyNameLanguageStorageKey(siteId, ledgerPreferenceUsername),
+        ledgerPartyNameLanguage,
+      );
+      setLedgerPartyNameLanguagePreferenceError("");
+    } catch {
+      setLedgerPartyNameLanguagePreferenceError("Party-name language preference could not be saved on this device.");
+    }
+  }, [ledgerPartyNameLanguage, ledgerPartyNameLanguagePreferencesSite, ledgerPreferenceUsername, owner, siteId]);
   useEffect(() => {
     if (!siteId || ledgerColumnPreferencesSite !== siteId) return;
     try {
@@ -1313,6 +1435,31 @@ export default function Booking({ user }) {
       return matchesQuery && matchesPayment && matchesState;
     });
   }, [ledgerRows, ledgerSearch, ledgerPaymentFilter, ledgerStateFilter]);
+  const sameReceiverIdentityIds = useMemo(() => {
+    const counts = new Map();
+    for (const row of ledgerRows) {
+      if (row.receiver_identity_id) {
+        counts.set(row.receiver_identity_id, (counts.get(row.receiver_identity_id) || 0) + 1);
+      }
+    }
+    return new Set([...counts].filter(([, count]) => count > 1).map(([id]) => id));
+  }, [ledgerRows]);
+  const groupLedgerRowsByReceiver = (rows) => {
+    const groups = new Map();
+    for (const row of rows) {
+      const groupId = sameReceiverIdentityIds.has(row.receiver_identity_id)
+        ? row.receiver_identity_id : `receipt:${row.id}`;
+      if (!groups.has(groupId)) groups.set(groupId, []);
+      groups.get(groupId).push(row);
+    }
+    return [...groups.values()].flat();
+  };
+  const groupedLedgerRows = useMemo(() => {
+    return groupLedgerRowsByReceiver(filteredLedgerRows);
+  }, [filteredLedgerRows, sameReceiverIdentityIds]);
+  const groupedAllLedgerRows = useMemo(() => {
+    return groupLedgerRowsByReceiver(ledgerRows);
+  }, [ledgerRows, sameReceiverIdentityIds]);
   const tripCloseoutSummary = useMemo(() => receipts.reduce((summary, receipt) => {
     if (receipt.voided) {
       summary.voided += 1;
@@ -1810,12 +1957,15 @@ export default function Booking({ user }) {
       : [receipt, ...cachedReceipts];
     receiptsCache.current.set(cacheKey, nextReceipts);
     setReceipts(nextReceipts);
-    void refreshReceipts(selectedTrip);
-    void refreshTrips(selectedDate, siteId);
     if (printAfter) {
       setPrintReceipt({ ...receipt, _printToken: Date.now() });
       setPrintMode("receipt");
     }
+    await Promise.all([
+      refreshReceipts(selectedTrip),
+      refreshTrips(selectedDate, siteId),
+      ...(ledgerTripId === selectedTrip.id ? [loadLedger()] : []),
+    ]);
   };
   const queuePrint = (receipt) => {
     setPrintReceipt({ ...receipt, _printToken: Date.now() });
@@ -1933,7 +2083,7 @@ export default function Booking({ user }) {
       delete snapshot.hamali;
     }
     for (const key of ["rent", "hamali"]) {
-      if (snapshot[key] === "") snapshot[key] = "0";
+      if (snapshot[key] === "") snapshot[key] = null;
     }
     const revision = revisions.current[rowId] || 0;
     savingRows.current.add(rowId);
@@ -1996,8 +2146,12 @@ export default function Booking({ user }) {
     revisions.current[rowId] = (revisions.current[rowId] || 0) + 1;
     const next = { ...row, ...patch, goods_rows: key === "goods_rows" ? patch.goods_rows : row.goods_rows };
     if (key === "rent" || key === "hamali") {
-      next.total_rent = (Number(key === "rent" ? value : row.rent) || 0)
-        + (Number(key === "hamali" ? value : row.hamali) || 0);
+      const nextTotal = receiptTotalIfComplete(
+        key === "rent" ? value : row.rent,
+        key === "hamali" ? value : row.hamali,
+        row.receipt_fee ?? 2,
+      );
+      next.total_rent = nextTotal == null ? null : nextTotal.toFixed(2);
     }
     ledgerRowCache.current[rowId] = next;
     setLedgerRows((current) => current.map((item) => item.id === rowId ? next : item));
@@ -2042,6 +2196,7 @@ export default function Booking({ user }) {
           to_date: ledgerDate,
           trip_id: ledgerTripId,
           columns: printableLedgerColumns.map((column) => column.key).join(","),
+          party_name_language: owner ? ledgerPartyNameLanguage : "hi",
         },
         responseType: "blob",
       });
@@ -2225,11 +2380,16 @@ export default function Booking({ user }) {
         {ledgerStatus[row.id]}
       </span>}
     </> },
-    { key: "sender", label: "Sender", printable: true, render: (row) => hindiName(row.sender_name_hindi, row.sender_name) },
+    { key: "sender", label: "Sender", printable: true,
+      render: (row) => <span title={row.sender_name || ""}>
+        {partyName(row.sender_name, row.sender_name_hindi_verified, ledgerPartyNameLanguage)}
+      </span>,
+      print: (row) => partyName(row.sender_name, row.sender_name_hindi_verified, ledgerPartyNameLanguage) },
     { key: "senderAddress", label: "Sender address", printable: true,
       render: (row) => hindiText(row.sender_address_hindi, row.sender_address) || "—" },
     { key: "senderPhone", label: "Sender phone", printable: true, render: (row) => row.sender_phone || "—" },
-    { key: "receiver", label: "Receiver", printable: true, render: (row) => hindiName(row.receiver_name_hindi, row.receiver_name) },
+    { key: "receiver", label: "Receiver", printable: true, render: (row) => receiverNameCell(row),
+      print: (row) => receiverNameCell(row, ledgerPartyNameLanguage) },
     { key: "receiverAddress", label: "Receiver address", printable: true,
       render: (row) => hindiText(row.receiver_address_hindi, row.receiver_address) || "—" },
     { key: "receiverPhone", label: "Receiver phone", printable: true, render: (row) => row.receiver_phone || "—" },
@@ -2243,15 +2403,15 @@ export default function Booking({ user }) {
         hindiText(line.description_hindi, line.description)).filter(Boolean).join(", ") || "—" },
     { key: "quantity", label: "Total quantity", printable: true, render: (row) => totalGoodsQuantity(row) },
     { key: "bhada", label: "Bhada", printable: true, financial: true, render: (row) =>
-      canFinanceRead ? ledgerField(row, "rent", amountInput(row.rent), "number", "Bhada", "min-h-8 border border-gray-400 bg-white px-2 py-1") : "—",
-    print: (row) => canFinanceRead ? money(row.rent) : "" },
+      canFinanceRead ? ledgerField(row, "rent", chargeInput(row.rent), "number", "Bhada", "min-h-8 border border-gray-400 bg-white px-2 py-1") : "—",
+    print: (row) => canFinanceRead ? chargeLabel(row.rent) : "" },
     { key: "hamali", label: "Hamali", printable: true, financial: true, render: (row) =>
-      canFinanceRead ? ledgerField(row, "hamali", amountInput(row.hamali), "number", "Hamali", "min-h-8 border border-gray-400 bg-white px-2 py-1") : "—",
-    print: (row) => canFinanceRead ? money(row.hamali) : "" },
+      canFinanceRead ? ledgerField(row, "hamali", chargeInput(row.hamali), "number", "Hamali", "min-h-8 border border-gray-400 bg-white px-2 py-1") : "—",
+    print: (row) => canFinanceRead ? chargeLabel(row.hamali) : "" },
     { key: "receiptFee", label: "Receipt fee", printable: true, financial: true,
       render: (row) => money(row.receipt_fee ?? 2), print: (row) => money(row.receipt_fee ?? 2) },
     { key: "totalAmount", label: "Total amount", printable: true, financial: true,
-      render: (row) => money(row.total_rent), print: (row) => money(row.total_rent) },
+      render: (row) => receiptTotalLabel(row), print: (row) => receiptTotalLabel(row) },
     { key: "amountReceived", label: "Amount received", printable: true, financial: true,
       render: (row) => money(row.paid_total), print: (row) => money(row.paid_total) },
     { key: "balanceDue", label: "Balance due", printable: true, financial: true,
@@ -2317,6 +2477,15 @@ export default function Booking({ user }) {
   };
   const printableLedgerColumns = orderedLedgerColumns.filter((column) =>
     column.printable && column.key !== "enteredBy");
+  const receiverNameCell = (row, outputLanguage = ledgerPartyNameLanguage) => <>
+    <span title={row.receiver_name || ""}>
+      {partyName(row.receiver_name, row.receiver_name_hindi_verified, outputLanguage)}
+    </span>
+    {sameReceiverIdentityIds.has(row.receiver_identity_id) && <span
+      className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-emerald-700 text-[10px] font-bold text-emerald-800"
+      aria-label={t("Confirmed same receiver", "पुष्टि किया गया वही प्राप्तकर्ता")}
+      title={t("Confirmed same receiver", "पुष्टि किया गया वही प्राप्तकर्ता")}>●</span>}
+  </>;
   if (siteError && !sites.length) return <ErrorState text={siteError} onRetry={() => api.get("/sites").then((response) => setSites(response.data || []))} />;
   if (!sites.length) return <div className="space-y-3"><PageHead title="Booking" /><Card className="p-6 text-center">
     <p className="text-lg font-semibold">No booking site is assigned to this account.</p>
@@ -2726,9 +2895,13 @@ export default function Booking({ user }) {
                   <div className="receipt-list-primary" lang="hi">
                     <h3 className="font-bold">{receipt.lr_ref}</h3>
                     <span className="receipt-list-parties">
-                      {hindiName(receipt.sender_name_hindi, receipt.sender_name)}
+                      <span title={receipt.sender_name || ""}>
+                        {partyName(receipt.sender_name, receipt.sender_name_hindi_verified, "hi")}
+                      </span>
                       {" → "}
-                      {hindiName(receipt.receiver_name_hindi, receipt.receiver_name)}
+                      <span title={receipt.receiver_name || ""}>
+                        {partyName(receipt.receiver_name, receipt.receiver_name_hindi_verified, "hi")}
+                      </span>
                     </span>
                     {receiverPhoneEnabled && receipt.receiver_phone && <span className="receipt-list-phone">
                       <Phone size={14} aria-hidden="true" />{receipt.receiver_phone}
@@ -2741,9 +2914,7 @@ export default function Booking({ user }) {
                     <div className="receipt-payment-summary text-sm">
                       <div className="receipt-payment-metric">
                         <span className="receipt-payment-label"><IconLabel icon={Receipt}>Total:</IconLabel></span>
-                        <strong>{money(receipt.total_rent
-                          ?? ((Number(receipt.rent) || 0) + (Number(receipt.hamali) || 0)
-                            + (Number(receipt.receipt_fee ?? 2) || 0)))}</strong>
+                        <strong>{receiptTotalLabel(receipt)}</strong>
                       </div>
                       <div className="receipt-payment-metric">
                         <span className="receipt-payment-label"><IconLabel icon={Banknote}>Received:</IconLabel></span>
@@ -2841,8 +3012,8 @@ export default function Booking({ user }) {
               <h2 className="text-lg font-bold">{ledgerTrip?.trip_ref || "—"}</h2>
               <p className="text-sm">{dmy(ledgerDate)}</p>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:flex">
-              <details ref={ledgerColumnPicker} className="ledger-table-column-picker relative col-span-2 sm:col-span-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <details ref={ledgerColumnPicker} className="ledger-table-column-picker relative">
                 <summary className="btn-s min-h-11 cursor-pointer list-none px-3">
                   {t("Table columns", "तालिका कॉलम")}
                 </summary>
@@ -2892,6 +3063,15 @@ export default function Booking({ user }) {
                   </div>
                 </div>
               </details>
+              {owner && <button type="button" role="switch" aria-checked={ledgerPartyNameLanguage === "en"}
+                aria-label={t("Show English party names", "पार्टी नाम अंग्रेज़ी में दिखाएँ")}
+                title={t("Toggle party names between Hindi and English",
+                  "पार्टी नाम हिंदी और अंग्रेज़ी के बीच बदलें")}
+                className="btn-s min-h-11 px-2.5 text-xs"
+                onClick={() => setLedgerPartyNameLanguage((current) => current === "hi" ? "en" : "hi")}>
+                {ledgerPartyNameLanguage === "en"
+                  ? t("English names", "अंग्रेज़ी नाम") : t("Hindi names", "हिंदी नाम")}
+              </button>}
               <button className="btn-s min-h-11" disabled={!ledgerTripId} onClick={printLedger}><Printer size={16} /> {t("Print", "प्रिंट")}</button>
               <button className="btn-p min-h-11" disabled={!ledgerTripId} onClick={downloadLedger}><Download size={16} /> Excel</button>
               {owner && ledgerTripId && !ledgerTrip?.ledger_completed_at && <button
@@ -2910,6 +3090,9 @@ export default function Booking({ user }) {
             </div>
             {ledgerColumnPreferenceError && <p role="alert" className="text-sm text-red-700">
               {ledgerColumnPreferenceError}
+            </p>}
+            {ledgerPartyNameLanguagePreferenceError && <p role="alert" className="text-sm text-red-700">
+              {ledgerPartyNameLanguagePreferenceError}
             </p>}
           </div>
           {isLedgerLocked(ledgerTrip) && <p className="border border-gray-500 bg-gray-100 p-2 text-sm">
@@ -3032,15 +3215,16 @@ export default function Booking({ user }) {
                         }} />
                     </th>)}</tr>
                 </thead>
-                <tbody>{filteredLedgerRows.map((row) => {
+                <tbody>{groupedLedgerRows.map((row) => {
                   const cell = "border border-gray-400 px-2 py-1 align-middle";
                   return <tr key={row.id} className={row.voided ? "bg-gray-100 text-gray-500" : ""}>
                     {orderedLedgerColumns.map((column) => <td key={column.key}
                       data-ledger-column={column.key}
                       className={`${cell} ${column.key === "date" || column.key === "receipt"
                         ? "whitespace-nowrap" : column.key === "goods" ? "break-words" : ""}`}
-                      lang={["sender", "senderAddress", "receiver", "receiverAddress", "goods", "goodsType", "goodsDescription"].includes(column.key)
-                        ? "hi" : undefined}>
+                      lang={["sender", "receiver"].includes(column.key)
+                        ? ledgerPartyNameLanguage : ["senderAddress", "receiverAddress", "goods", "goodsType", "goodsDescription"].includes(column.key)
+                          ? "hi" : undefined}>
                       {column.render(row)}
                     </td>)}
                   </tr>;
@@ -3064,7 +3248,7 @@ export default function Booking({ user }) {
                 {t("No receipts match these filters.", "कोई रसीद इन फ़िल्टर से मेल नहीं खाती।")}
               </p>}
               <div className="space-y-3 p-2 lg:hidden">
-                {filteredLedgerRows.map((row) => {
+                {groupedLedgerRows.map((row) => {
                   const goods = getGoodsRows(row).map(hindiLedgerGoodsLine).join(", ");
                   const rowStatus = ledgerStatus[row.id] || "Saved";
                   return <article key={`mobile-${row.id}`} aria-label={`${row.lr_ref} mobile ledger receipt`}
@@ -3083,17 +3267,20 @@ export default function Booking({ user }) {
                           onChange={(event) => setLedgerRowPaid(row, event.target.checked)} />
                       </label>}
                     </div>
-                    <p className="mt-3 text-base" lang="hi">
-                      {hindiName(row.sender_name_hindi, row.sender_name)} → {hindiName(row.receiver_name_hindi, row.receiver_name)}
+                    <p className="mt-3 text-base" lang={ledgerPartyNameLanguage}>
+                      <span title={row.sender_name || ""}>
+                        {partyName(row.sender_name, row.sender_name_hindi_verified, ledgerPartyNameLanguage)}
+                      </span>
+                      {" → "}{receiverNameCell(row)}
                     </p>
                     <p className="mt-2 text-base font-semibold" lang="hi">{goods || t("Goods not entered", "सामान नहीं भरा")}</p>
                     <p className="mt-1 text-sm">{t("Total quantity", "कुल मात्रा")}: <strong>{totalGoodsQuantity(row)}</strong></p>
                     {canFinanceRead ? <div className="mt-3 grid grid-cols-2 gap-2">
                       <label><span className="lbl"><IconLabel icon={Banknote}>{t("Bhada (₹)", "भाड़ा (₹)")}</IconLabel></span>
-                        {ledgerField(row, "rent", amountInput(row.rent), "number", "mobile Bhada", "min-h-11 border border-line bg-white px-2")}
+                        {ledgerField(row, "rent", chargeInput(row.rent), "number", "mobile Bhada", "min-h-11 border border-line bg-white px-2")}
                       </label>
                       <label><span className="lbl"><IconLabel icon={Banknote}>{t("Hamali (₹)", "हमाली (₹)")}</IconLabel></span>
-                        {ledgerField(row, "hamali", amountInput(row.hamali), "number", "mobile Hamali", "min-h-11 border border-line bg-white px-2")}
+                        {ledgerField(row, "hamali", chargeInput(row.hamali), "number", "mobile Hamali", "min-h-11 border border-line bg-white px-2")}
                       </label>
                       <p className="rounded-lg bg-canvas p-2 text-sm"><IconLabel icon={Receipt}>{t("Receipt fee", "रसीद शुल्क")}</IconLabel><strong className="block">{money(row.receipt_fee ?? 2)}</strong></p>
                       <p className="rounded-lg bg-canvas p-2 text-sm">{t("Entered by", "किसने भरा")} <strong className="block">{row.entry_by || "—"}</strong></p>
@@ -3175,7 +3362,7 @@ export default function Booking({ user }) {
                 <th className="border border-black p-1 text-left" key={column.key}>
                   {ledgerColumnLabel(column.label, "hi")}
                 </th>)}</tr></thead>
-              <tbody>{ledgerRows.map((row) => <tr key={row.id} className={row.voided ? "text-gray-500" : ""}>
+              <tbody>{groupedAllLedgerRows.map((row) => <tr key={row.id} className={row.voided ? "text-gray-500" : ""}>
                 {printableLedgerColumns.map((column) =>
                   <td className="border border-black p-1" key={column.key}>
                     {column.print ? column.print(row) : column.render(row)}

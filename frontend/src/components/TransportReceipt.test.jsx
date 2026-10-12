@@ -69,6 +69,72 @@ describe("TransportReceipt", () => {
     expect(container.querySelector(".transport-lr").getAttribute("data-print-size")).toBe("58mm");
   });
 
+  it("ignores unverified legacy Hindi fields and transliterates the original party spelling", () => {
+    const { container } = render(<TransportReceipt receipt={{
+      ...receipt,
+      sender_name_hindi: "अम्बिक",
+      receiver_name_hindi: "जधव",
+    }} />);
+
+    expect(container.querySelectorAll(".transport-lr-party-name .transport-lr-writing")[0].textContent)
+      .toBe("समन");
+    expect(container.querySelectorAll(".transport-lr-party-name .transport-lr-writing")[1].textContent)
+      .toBe("रमेश");
+    expect(container.textContent).not.toContain("अम्बिक");
+    expect(container.textContent).not.toContain("जधव");
+  });
+
+  it("prints verified Hindi party names on Hindi receipts but keeps English receipt names unchanged", () => {
+    const localizedReceipt = {
+      ...receipt,
+      sender_name: "Aniket",
+      sender_name_hindi: "अम्बिक",
+      sender_name_hindi_verified: "अनिकेत",
+      receiver_name: "Ashok Bogande",
+      receiver_name_hindi: "जधव",
+      receiver_name_hindi_verified: "अशोक बोगांडे",
+    };
+    const { container, rerender } = render(<TransportReceipt receipt={localizedReceipt} />);
+    const getPartyNames = () => [...container.querySelectorAll(
+      ".transport-lr-party-name .transport-lr-writing",
+    )].map((element) => element.textContent);
+
+    expect(getPartyNames()).toEqual(["अनिकेत", "अशोक बोगांडे"]);
+
+    rerender(<TransportReceipt receipt={localizedReceipt} language="english" />);
+    expect(getPartyNames()).toEqual(["Aniket", "Ashok Bogande"]);
+  });
+
+  it("transliterates names on Hindi receipts when no verified spelling exists", () => {
+    const { container } = render(<TransportReceipt receipt={{
+      ...receipt,
+      sender_name: "Deepak Jadhav",
+      receiver_name: "Kasva General",
+    }} />);
+
+    expect([...container.querySelectorAll(
+      ".transport-lr-party-name .transport-lr-writing",
+    )].map((element) => element.textContent)).toEqual(["दीपक जधव", "कस्वा जनरल"]);
+  });
+
+  it("leaves unentered charges and the total blank on the printable receipt", () => {
+    const { container } = render(<TransportReceipt receipt={{
+      ...receipt,
+      rent: null,
+      hamali: "0.00",
+      total_rent: null,
+    }} />);
+    const chargeRows = [...container.querySelectorAll(".transport-lr-charges tbody tr")];
+
+    expect(chargeRows[0].querySelectorAll("td")[0].textContent).toBe("");
+    expect(chargeRows[0].querySelectorAll("td")[1].textContent).toBe("");
+    expect(chargeRows[1].querySelectorAll("td")[0].textContent).toBe("");
+    expect(chargeRows[1].querySelectorAll("td")[1].textContent).toBe("");
+    expect(chargeRows.at(-1).querySelectorAll("td")[0].textContent).toBe("");
+    expect(chargeRows.at(-1).querySelectorAll("td")[1].textContent).toBe("");
+    expect(chargeRows[2].textContent).toContain("₹2");
+  });
+
   it("prints configurable branch contact lines in the right-side header block", () => {
     const { container } = render(<TransportReceipt receipt={receipt} settings={{
       company_name: "Transport",
@@ -210,8 +276,8 @@ describe("TransportReceipt", () => {
     }} showSenderAddress={false} showReceiverAddress={false} />);
 
     const partyCards = container.querySelectorAll(".transport-lr-party-card");
-    expect(partyCards[0].textContent).toContain("Saman");
-    expect(partyCards[1].textContent).toContain("Ramesh");
+    expect(partyCards[0].textContent).toContain("समन");
+    expect(partyCards[1].textContent).toContain("रमेश");
     expect(partyCards[1].textContent).toContain("9876543210");
     expect(container.querySelector(".transport-lr-party-address")).toBeNull();
   });
@@ -228,9 +294,9 @@ describe("TransportReceipt", () => {
     expect(container.textContent).toContain("9123456789");
     expect(container.textContent).toContain("9876543210");
     const partyCards = container.querySelectorAll(".transport-lr-party-card");
-    expect(partyCards[0].textContent).toContain("Saman");
+    expect(partyCards[0].textContent).toContain("समन");
     expect(partyCards[0].textContent).toContain("9123456789");
-    expect(partyCards[1].textContent).toContain("Ramesh");
+    expect(partyCards[1].textContent).toContain("रमेश");
     expect(partyCards[1].textContent).toContain("9876543210");
     expect(partyCards[1].querySelector(".transport-lr-party-name").textContent)
       .not.toContain("9876543210");

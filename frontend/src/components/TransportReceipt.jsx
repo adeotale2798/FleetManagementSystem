@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { CalendarDays, FileText, MapPin, Phone, UserRound } from "lucide-react";
 import naiduLogo from "../assets/naidu-goods-transport-logo.png";
 import { dmy } from "../lib/format";
+import { partyName } from "../lib/partyNames";
 
 function textValue(hindi, english, language) {
   if (language !== "english" && hindi) return hindi;
@@ -11,7 +12,7 @@ function textValue(hindi, english, language) {
 function moneyParts(value) {
   if (value == null || value === "") return ["", ""];
   const amount = Number(value);
-  if (!Number.isFinite(amount)) return ["", ""];
+  if (!Number.isFinite(amount) || amount === 0) return ["", ""];
   const [rupees, paise] = amount.toFixed(2).split(".");
   return [rupees, paise];
 }
@@ -63,6 +64,16 @@ export default function TransportReceipt({
 }) {
   if (!receipt) return null;
   const name = settings.company_name || company.name || "";
+  const senderName = partyName(
+    receipt.sender_name || receipt.sender?.name || "",
+    receipt.sender_name_hindi_verified,
+    language === "english" ? "english" : "hi",
+  );
+  const receiverName = partyName(
+    receipt.receiver_name || receipt.receiver?.name || "",
+    receipt.receiver_name_hindi_verified,
+    language === "english" ? "english" : "hi",
+  );
   const address = settings.address || [company.address, company.city, company.state].filter(Boolean).join(", ");
   const logo = naiduLogo;
   const contacts = (settings.contacts || []).slice(0, 3).filter((item) =>
@@ -128,8 +139,8 @@ export default function TransportReceipt({
         <div className="transport-lr-party-card">
           <div className="transport-lr-party-name">
             <FieldLabel icon={UserRound}>{labelValue("भेजनेवाले", "Sender", language)}</FieldLabel>
-            <span className="transport-lr-writing">
-              {textValue(receipt.sender_name_hindi, receipt.sender_name || receipt.sender?.name, language)}
+            <span className="transport-lr-writing" title={receipt.sender_name || receipt.sender?.name || ""}>
+              {senderName}
             </span>
           </div>
           <div className="transport-lr-party-subline">
@@ -144,8 +155,8 @@ export default function TransportReceipt({
         <div className="transport-lr-party-card">
           <div className="transport-lr-party-name">
             <FieldLabel icon={UserRound}>{labelValue("पानेवाले", "Receiver", language)}</FieldLabel>
-            <span className="transport-lr-writing">
-              {textValue(receipt.receiver_name_hindi, receipt.receiver_name || receipt.receiver?.name, language)}
+            <span className="transport-lr-writing" title={receipt.receiver_name || receipt.receiver?.name || ""}>
+              {receiverName}
             </span>
           </div>
           <div className="transport-lr-party-subline">

@@ -216,6 +216,8 @@ class LRCreate(StrictModel):
     city: str = Field(default="", max_length=100)
     sender_name_hindi: str = Field(default="", max_length=160)
     receiver_name_hindi: str = Field(default="", max_length=160)
+    sender_name_hindi_verified: str = Field(default="", max_length=160)
+    receiver_name_hindi_verified: str = Field(default="", max_length=160)
     receipt_date: Optional[str] = None
     goods_type: Optional[str] = Field(default=None, min_length=1, max_length=80)
     goods_type_hindi: str = Field(default="", max_length=120)
@@ -246,6 +248,13 @@ class LRCreate(StrictModel):
             raise ValueError("Enter at least one goods type and quantity")
         return self
 
+    @field_validator("sender_name_hindi_verified", "receiver_name_hindi_verified")
+    @classmethod
+    def require_devanagari_party_names(cls, value):
+        if value and not re.search(r"[\u0900-\u097f]", value):
+            raise ValueError("Hindi party names must include Devanagari text")
+        return value
+
 
 class LRUpdate(StrictModel):
     sender_name: Optional[str] = Field(default=None, max_length=160)
@@ -260,6 +269,8 @@ class LRUpdate(StrictModel):
     city: Optional[str] = Field(default=None, max_length=100)
     sender_name_hindi: Optional[str] = Field(default=None, max_length=160)
     receiver_name_hindi: Optional[str] = Field(default=None, max_length=160)
+    sender_name_hindi_verified: Optional[str] = Field(default=None, max_length=160)
+    receiver_name_hindi_verified: Optional[str] = Field(default=None, max_length=160)
     receipt_date: Optional[str] = None
     receiver_match_action: Optional[str] = None
     receiver_identity_id: Optional[str] = None
@@ -272,6 +283,13 @@ class LRUpdate(StrictModel):
     idempotency_key: Optional[str] = Field(default=None, min_length=8, max_length=120)
     expected_updated_at: Optional[str] = None
     owner_correction_reason: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("sender_name_hindi_verified", "receiver_name_hindi_verified")
+    @classmethod
+    def require_devanagari_party_names(cls, value):
+        if value and not re.search(r"[\u0900-\u097f]", value):
+            raise ValueError("Hindi party names must include Devanagari text")
+        return value
 
     @model_validator(mode="before")
     @classmethod
@@ -584,6 +602,11 @@ def _ledger_hindi_text(value: Any) -> str:
         "pipe": "पाइप", "rod": "छड़", "plastic": "प्लास्टिक",
         "paper": "कागज़", "potato": "आलू", "mango": "आम", "onion": "प्याज़",
         "medicine": "दवाई", "water": "पानी",
+        "general": "जनरल", "kasva": "कस्वा", "kaswa": "कस्वा",
+        "jadhav": "जधव", "bogande": "बोगांडे", "agarbatti": "अगरबत्ती",
+        "aniket": "अनिकेत", "chandani": "चंदानी", "chandmal": "चंदमल",
+        "chandnamal": "चंदनमल", "hiralal": "हीरालाल", "patil": "पाटिल",
+        "rahul": "राहुल",
     }
     if text.lower() in common_goods:
         return common_goods[text.lower()]
@@ -2838,10 +2861,12 @@ async def create_site_lr(site_id: str, trip_id: str, body: LRCreate, u=Depends(s
         "timezone": trip["timezone"], "sequence": sequence, "lr_ref": lr_ref,
         "receipt_date": receipt_date,
         "sender_name": sender_name, "sender_name_hindi": body.sender_name_hindi.strip() or sender_name,
+        "sender_name_hindi_verified": body.sender_name_hindi_verified.strip(),
         "sender_address": " ".join(body.sender_address.split()), "sender_phone": sender_phone or "",
         "sender_address_hindi": body.sender_address_hindi.strip() or body.sender_address.strip(),
         "receiver_name": receiver["name"], "receiver_phone": receiver_phone or "",
         "receiver_name_hindi": body.receiver_name_hindi.strip() or receiver["name"],
+        "receiver_name_hindi_verified": body.receiver_name_hindi_verified.strip(),
         "receiver_address": " ".join(body.receiver_address.split()),
         "receiver_address_hindi": body.receiver_address_hindi.strip() or body.receiver_address.strip(),
         "city": " ".join(body.city.split()),
@@ -3043,6 +3068,7 @@ async def update_site_lr(
         await _save_category(site, u, "goods", changes["goods_type"])
     for key, max_length in (
         ("sender_name_hindi", 160), ("receiver_name_hindi", 160),
+        ("sender_name_hindi_verified", 160), ("receiver_name_hindi_verified", 160),
         ("goods_type_hindi", 120),
     ):
         if key in changes:
@@ -3125,7 +3151,7 @@ async def update_site_lr(
         old_rent = _decimal_value(lr.get("rent"))
         new_rent = _decimal(changes["rent"], "Bhada", allow_none=True)
         paid = (await _payments_by_lr(site, trip_id, [lr_id])).get(lr_id, Decimal("0.00"))
-        if new_rent is not None and new_rent < paid and not is_owner:
+        if paid and (new_rent is None or new_rent < paid) and not is_owner:
             raise HTTPException(409, "Bhada cannot be reduced below payments already recorded")
         charge_values_changed = charge_values_changed or new_rent != old_rent
         new_values["rent"] = format(new_rent, ".2f") if new_rent is not None else None
@@ -4362,6 +4388,55 @@ async def export_site_ledger(site_id: str, trip_id: str, section: str, u=Depends
     )
 
 
+@router.get("/sites/{site_id}/party-suggestions")
+async def list_site_party_suggestions(
+    site_id: str,
+    q: str = Query(..., min_length=1, max_length=80),
+    u=Depends(site_user),
+):
+    site = await _site_for_user(site_id, u, "lrs:read")
+    term = q.strip()
+    if not term:
+        return {"senders": [], "receivers": []}
+
+    prefix = {"$regex": f"^{re.escape(term)}", "$options": "i"}
+    async def matches_for(field, include_phone=False):
+        match = _scoped(
+            str(site["business_id"]), site_id, voided={"$ne": True},
+            **{field: prefix},
+        )
+        group = {
+            "_id": {"$toLower": {"$trim": {"input": f"${field}"}}},
+            "name": {"$first": f"${field}"},
+            "last_seen": {"$first": "$operating_date"},
+        }
+        projection = {"_id": 0, "name": 1}
+        if include_phone:
+            group["phone"] = {"$max": {
+                "$cond": [
+                    {"$ne": [{"$ifNull": ["$receiver_phone", ""]}, ""]},
+                    "$receiver_phone", "",
+                ],
+            }}
+            projection["phone"] = 1
+        pipeline = [
+            {"$match": match},
+            {"$sort": {"operating_date": -1, "sequence": -1}},
+            {"$group": group},
+            {"$sort": {"last_seen": -1, "name": 1}},
+            {"$limit": 50},
+            {"$project": projection},
+        ]
+        return await db.site_lrs.aggregate(pipeline).to_list(50)
+
+    senders, receivers = await asyncio.gather(
+        matches_for("sender_name"),
+        matches_for("receiver_name", include_phone=True),
+    )
+
+    return {"senders": senders, "receivers": receivers}
+
+
 @router.get("/sites/{site_id}/ledger/entries")
 async def list_site_ledger_entries(
     site_id: str,
@@ -4618,7 +4693,10 @@ async def export_site_ledger_xlsx(
     trip_id: Optional[str] = None,
     u=Depends(site_user),
     columns: Optional[str] = None,
+    party_name_language: str = "hi",
 ):
+    if party_name_language not in {"hi", "en"}:
+        raise HTTPException(422, "Party name language must be 'hi' or 'en'")
     site = await _site_for_user(site_id, u, "lrs:read")
     if u.get("role") == "site_manager" and "ledger:export" not in (
         (u.get("site_permissions") or {}).get(site_id, [])
@@ -4737,8 +4815,12 @@ async def export_site_ledger_xlsx(
             row_values += (trip.get("trip_ref", ""),)
         row_values += (
             lr.get("lr_ref", ""),
-            _ledger_hindi_text(lr.get("sender_name_hindi")),
-            _ledger_hindi_text(lr.get("receiver_name_hindi")),
+            lr.get("sender_name", "") if party_name_language == "en"
+            else _ledger_hindi_text(
+                lr.get("sender_name_hindi_verified") or lr.get("sender_name", "")),
+            lr.get("receiver_name", "") if party_name_language == "en"
+            else _ledger_hindi_text(
+                lr.get("receiver_name_hindi_verified") or lr.get("receiver_name", "")),
             ", ".join(
                 " - ".join(part for part in (
                     _hindi_digits(line.get("quantity", 0)),
@@ -4777,11 +4859,15 @@ async def export_site_ledger_xlsx(
            values_by_column = {
                "date": lr.get("receipt_date", lr.get("operating_date", "")),
                "receipt": lr.get("lr_ref", ""),
-               "sender": _ledger_hindi_text(lr.get("sender_name_hindi") or lr.get("sender_name")),
+               "sender": lr.get("sender_name", "") if party_name_language == "en"
+               else _ledger_hindi_text(
+                   lr.get("sender_name_hindi_verified") or lr.get("sender_name", "")),
                "senderAddress": _ledger_hindi_text(
                    lr.get("sender_address_hindi") or lr.get("sender_address")),
                "senderPhone": lr.get("sender_phone", ""),
-               "receiver": _ledger_hindi_text(lr.get("receiver_name_hindi") or lr.get("receiver_name")),
+               "receiver": lr.get("receiver_name", "") if party_name_language == "en"
+               else _ledger_hindi_text(
+                   lr.get("receiver_name_hindi_verified") or lr.get("receiver_name", "")),
                "receiverAddress": _ledger_hindi_text(
                    lr.get("receiver_address_hindi") or lr.get("receiver_address")),
                "receiverPhone": lr.get("receiver_phone", ""),
