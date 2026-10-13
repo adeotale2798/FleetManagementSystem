@@ -13,6 +13,11 @@ from pydantic import ValidationError
 import site_ops
 
 
+class _SitePartyNames:
+    async def update_one(self, _query, _update, upsert=False):
+        return None
+
+
 def _ledger_csv(site_id="site-1", trip_id="trip-1", business_id="business-1"):
     output = io.StringIO(newline="")
     writer = csv.writer(output, lineterminator="\r\n")
@@ -50,11 +55,20 @@ def test_creation_metadata_records_login_identity_and_role():
         "created_by_name": "Platform Owner", "created_by_role": "platform_support",
     }) == "P-Platform"
     assert site_ops._ledger_hindi_text("AUTO") == "ऑटो"
+    assert site_ops._ledger_hindi_text("New") == "न्यू"
+    assert site_ops._ledger_hindi_text("New Payal Traders") == "न्यू पयल ट्रेडर्स"
     assert site_ops._ledger_hindi_text("Cement bag") == "सीमेंट बोरा"
     assert site_ops._ledger_hindi_text("gadi bhada") == "गाड़ी भाड़ा"
     assert site_ops._ledger_hindi_text("gaadi bhaada") == "गाड़ी भाड़ा"
     assert site_ops._ledger_hindi_text("Kasva General") == "कस्वा जनरल"
     assert site_ops._ledger_hindi_text("Deepak Jadhav") == "दीपक जधव"
+    assert site_ops._ledger_hindi_text("Kasva Traders") == "कस्वा ट्रेडर्स"
+    assert site_ops._ledger_hindi_text("Kasva Traders", [
+        {"english": "Traders", "hindi": "व्यापारी"},
+    ]) == "कस्वा व्यापारी"
+    assert site_ops._ledger_hindi_text("Kasva Traders", [
+        {"english": "Kasva Traders", "hindi": "कस्वा ट्रेडिंग कंपनी"},
+    ]) == "कस्वा ट्रेडिंग कंपनी"
     assert site_ops._ledger_hindi_text("Rahul") == "राहुल"
     assert site_ops._ledger_hindi_text("Chandnamal Hiralal") == "चंदनमल हीरालाल"
     assert site_ops._ledger_hindi_text("गाड़ी bhada") == "गाड़ी भाड़ा"
@@ -78,6 +92,323 @@ def test_creation_metadata_records_login_identity_and_role():
     assert owner_record["charge_updated_by_login"] == "manager-login"
     assert site_ops._charge_editor_marker(charge_metadata) == "M"
     assert site_ops._charge_editor_marker({"charge_updated_by_role": "owner"}) == "A"
+
+
+def test_saved_site_party_names_are_scoped_and_deduplicated_by_role(monkeypatch):
+    updates = []
+
+    class SitePartyNames:
+        async def update_one(self, query, update, upsert=False):
+            updates.append((query, update, upsert))
+
+    monkeypatch.setattr(site_ops, "db", SimpleNamespace(site_party_names=SitePartyNames()))
+    monkeypatch.setattr(site_ops, "new_id", lambda: "party-name-id")
+    monkeypatch.setattr(site_ops, "now_iso", lambda: "2026-10-13T00:00:00+00:00")
+    site = {"_id": "site-1", "business_id": "business-1"}
+    lr = {
+        "sender_name": "  Ramesh   Transport ", "receiver_name": "Ramesh Transport",
+        "receiver_phone": "9876543210", "operating_date": "2026-10-13",
+    }
+
+    asyncio.run(site_ops._remember_site_lr_party_names(site, lr))
+
+    assert len(updates) == 2
+    sender_query, sender_update, sender_upsert = updates[0]
+    receiver_query, receiver_update, receiver_upsert = updates[1]
+    assert sender_query == {
+        "business_id": "business-1", "site_id": "site-1",
+        "role": "sender", "normalized_name": "ramesh transport",
+    }
+    assert receiver_query == {
+        "business_id": "business-1", "site_id": "site-1",
+        "role": "receiver", "normalized_name": "ramesh transport",
+    }
+    assert sender_update["$set"] == {
+        "name": "Ramesh Transport", "last_seen": "2026-10-13",
+    }
+    assert receiver_update["$set"] == {
+        "name": "Ramesh Transport", "last_seen": "2026-10-13",
+        "phone": "9876543210",
+    }
+    assert sender_upsert is True and receiver_upsert is True
+
+
+def test_party_name_registry_ignores_blanks_and_updates_receiver_phone(monkeypatch):
+    records = {}
+
+    class SitePartyNames:
+        async def update_one(self, query, update, upsert=False):
+            key = tuple(query.values())
+            record = records.setdefault(key, {})
+            record.update(update.get("$setOnInsert", {}))
+            record.update(update["$set"])
+
+    monkeypatch.setattr(site_ops, "db", SimpleNamespace(site_party_names=SitePartyNames()))
+    site = {"_id": "site-1", "business_id": "business-1"}
+    asyncio.run(site_ops._remember_site_party_name(site, "receiver", "   ", "2026-10-13"))
+    asyncio.run(site_ops._remember_site_party_name(
+        site, "receiver", " Ramesh   Transport ", "2026-10-12", "1111111111",
+    ))
+    asyncio.run(site_ops._remember_site_party_name(
+        site, "receiver", "ramesh transport", "2026-10-13", "2222222222",
+    ))
+    asyncio.run(site_ops._remember_site_party_name(
+        site, "receiver", "RAMESH TRANSPORT", "2026-10-14",
+    ))
+    asyncio.run(site_ops._remember_site_party_name(
+        site, "sender", "Ramesh Transport", "2026-10-14",
+    ))
+
+    assert len(records) == 2
+    receiver = next(value for key, value in records.items() if "receiver" in key)
+    sender = next(value for key, value in records.items() if "sender" in key)
+    assert receiver["name"] == "RAMESH TRANSPORT"
+    assert receiver["last_seen"] == "2026-10-14"
+    assert receiver["phone"] == "2222222222"
+    assert "phone" not in sender
+
+
+def test_party_name_registry_recovers_from_concurrent_unique_index_upsert(monkeypatch):
+    calls = []
+
+    class SitePartyNames:
+        async def update_one(self, query, update, upsert=False):
+            calls.append((query, update, upsert))
+            if len(calls) == 1:
+                raise site_ops.DuplicateKeyError("concurrent insert")
+
+    monkeypatch.setattr(site_ops, "db", SimpleNamespace(site_party_names=SitePartyNames()))
+    asyncio.run(site_ops._remember_site_party_name(
+        {"_id": "site-1", "business_id": "business-1"},
+        "sender", "Ramesh Transport", "2026-10-13",
+    ))
+
+    assert len(calls) == 2
+    assert calls[0][0] == calls[1][0]
+    assert calls[0][2] is True
+    assert calls[1][2] is False
+    assert calls[1][1] == {"$set": {"name": "Ramesh Transport", "last_seen": "2026-10-13"}}
+
+
+def test_owner_can_correct_and_retire_party_suggestions_with_audit(monkeypatch):
+    site = {"_id": "site-1", "business_id": "business-1"}
+    records = {
+        "ramesh transport": {
+            "_id": "registry-old", "business_id": "business-1", "site_id": "site-1",
+            "role": "receiver", "normalized_name": "ramesh transport",
+            "name": "Ramesh Transport", "phone": "1111111111",
+            "last_seen": "2026-10-13", "active": True,
+        },
+    }
+    suppressions = {}
+    audits = []
+
+    class PartyNames:
+        async def find_one(self, query):
+            return records.get(query["normalized_name"])
+
+        async def update_one(self, query, update, upsert=False):
+            normalized = query["normalized_name"]
+            record = records.setdefault(normalized, update.get("$setOnInsert", {}).copy())
+            record.update(update.get("$set", {}))
+            for key in update.get("$unset", {}):
+                record.pop(key, None)
+
+    class Suppressions:
+        async def update_one(self, query, update, upsert=False):
+            normalized = query["normalized_name"]
+            record = suppressions.setdefault(normalized, update.get("$setOnInsert", {}).copy())
+            record.update(query)
+            record.update(update.get("$set", {}))
+
+        async def delete_one(self, query):
+            suppressions.pop(query["normalized_name"], None)
+
+    async def get_site(_site_id, _user, _permission=None):
+        return site
+
+    async def audit(_site, _user, action, target_type, target_id, old=None, new=None, reason=None):
+        audits.append((action, target_type, target_id, old, new, reason))
+
+    monkeypatch.setattr(site_ops, "_site_for_user", get_site)
+    monkeypatch.setattr(site_ops, "_audit", audit)
+    monkeypatch.setattr(site_ops, "new_id", lambda: "new-id")
+    monkeypatch.setattr(site_ops, "now_iso", lambda: "2026-10-13T10:00:00+05:30")
+    monkeypatch.setattr(site_ops, "db", SimpleNamespace(
+        site_party_names=PartyNames(), site_party_name_suppressions=Suppressions(),
+    ))
+    owner = {"role": "owner", "username": "owner-login"}
+
+    corrected = asyncio.run(site_ops.update_site_party_name_suggestion(
+        "site-1",
+        site_ops.PartyNameSuggestionUpdate(
+            role="receiver", original_name="Ramesh Transport",
+            name="Ramesh Transport Co", phone="2222222222",
+            reason="Corrected spelling and contact",
+        ),
+        owner,
+    ))
+    retired = asyncio.run(site_ops.update_site_party_name_suggestion(
+        "site-1",
+        site_ops.PartyNameSuggestionUpdate(
+            role="receiver", original_name="Ramesh Transport Co",
+            retired=True, reason="Duplicate entry",
+        ),
+        owner,
+    ))
+
+    assert corrected == {
+        "updated": True, "role": "receiver",
+        "name": "Ramesh Transport Co", "phone": "2222222222",
+    }
+    assert retired == {"retired": True}
+    assert records["ramesh transport"]["active"] is False
+    assert records["ramesh transport co"]["active"] is False
+    assert set(suppressions) == {"ramesh transport", "ramesh transport co"}
+    assert [entry[0] for entry in audits] == [
+        "party_name.corrected", "party_name.retired",
+    ]
+    assert audits[0][5] == "Corrected spelling and contact"
+    assert audits[1][5] == "Duplicate entry"
+
+
+def test_party_suggestion_management_rejects_non_owner_and_invalid_receiver_phone(monkeypatch):
+    async def get_site(_site_id, _user, _permission=None):
+        return {"_id": "site-1", "business_id": "business-1"}
+
+    monkeypatch.setattr(site_ops, "_site_for_user", get_site)
+
+    with pytest.raises(HTTPException) as denied:
+        asyncio.run(site_ops.update_site_party_name_suggestion(
+            "site-1",
+            site_ops.PartyNameSuggestionUpdate(
+                role="sender", original_name="Ramesh", name="Ramesh Co",
+            ),
+            {"role": "site_manager", "username": "manager"},
+        ))
+    assert denied.value.status_code == 403
+
+    class PartyNames:
+        async def find_one(self, _query):
+            return None
+
+        async def update_one(self, *_args, **_kwargs):
+            raise AssertionError("invalid phone must be rejected before persistence")
+
+    monkeypatch.setattr(site_ops, "db", SimpleNamespace(site_party_names=PartyNames()))
+    with pytest.raises(HTTPException, match="exactly 10 digits"):
+        asyncio.run(site_ops.update_site_party_name_suggestion(
+            "site-1",
+            site_ops.PartyNameSuggestionUpdate(
+                role="receiver", original_name="Ramesh", phone="12345",
+            ),
+            {"role": "owner", "username": "owner"},
+        ))
+
+
+def test_party_name_management_list_endpoint_is_owner_only(monkeypatch):
+    calls = []
+
+    async def list_suggestions(site_id, query, user):
+        calls.append((site_id, query, user))
+        return {"senders": [], "receivers": [], "has_more": {}}
+
+    monkeypatch.setattr(site_ops, "list_site_party_suggestions", list_suggestions)
+    with pytest.raises(HTTPException) as denied:
+        asyncio.run(site_ops.list_site_party_names_for_owner(
+            "site-1", "ra", {"role": "site_manager"},
+        ))
+    assert denied.value.status_code == 403
+    assert calls == []
+
+    owner = {"role": "owner", "username": "owner"}
+    result = asyncio.run(site_ops.list_site_party_names_for_owner(
+        "site-1", "ra", owner,
+    ))
+    assert result == {"senders": [], "receivers": [], "has_more": {}}
+    assert calls == [("site-1", "ra", owner)]
+
+
+def test_party_suggestions_persist_across_requests_and_remain_tenant_site_scoped(monkeypatch):
+    records = {}
+
+    class SavedNameCursor:
+        def __init__(self, entries):
+            self.entries = entries
+
+        def sort(self, *_args):
+            return self
+
+        def limit(self, _amount):
+            return self
+
+        async def to_list(self, amount):
+            return self.entries[:amount]
+
+    class SitePartyNames:
+        async def update_one(self, query, update, upsert=False):
+            key = tuple(query.values())
+            record = records.setdefault(key, {
+                **query, **update.get("$setOnInsert", {}),
+            })
+            record.update(update["$set"])
+
+        def find(self, query, _projection):
+            prefix = query["normalized_name"]["$regex"][1:]
+            entries = [
+                {"name": record["name"], "phone": record.get("phone", ""),
+                 "last_seen": record.get("last_seen", "")}
+                for record in records.values()
+                if record["business_id"] == query["business_id"]
+                and record["site_id"] == query["site_id"]
+                and record["role"] == query["role"]
+                and record["normalized_name"].startswith(prefix)
+            ]
+            entries.sort(key=lambda item: item["last_seen"], reverse=True)
+            return SavedNameCursor(entries)
+
+    class EmptyLRs:
+        def aggregate(self, _pipeline):
+            return SavedNameCursor([])
+
+    class EmptySuppressions:
+        def find(self, _query, _projection):
+            return SavedNameCursor([])
+
+    sites = {
+        "site-1": {"_id": "site-1", "business_id": "business-1"},
+        "site-2": {"_id": "site-2", "business_id": "business-1"},
+        "site-other": {"_id": "site-other", "business_id": "business-2"},
+    }
+
+    async def get_site(site_id, _user, _permission):
+        return sites[site_id]
+
+    monkeypatch.setattr(site_ops, "_site_for_user", get_site)
+    monkeypatch.setattr(site_ops, "db", SimpleNamespace(
+        site_lrs=EmptyLRs(), site_party_names=SitePartyNames(),
+        site_party_name_suppressions=EmptySuppressions(),
+    ))
+    asyncio.run(site_ops._remember_site_party_name(
+        sites["site-1"], "receiver", "Ramesh Transport", "2026-10-13", "9876543210",
+    ))
+
+    result_after_reload = asyncio.run(site_ops.list_site_party_suggestions(
+        "site-1", "r", {"role": "owner", "username": "second-device-user"},
+    ))
+    result_other_site = asyncio.run(site_ops.list_site_party_suggestions(
+        "site-2", "r", {"role": "owner"},
+    ))
+    result_other_tenant = asyncio.run(site_ops.list_site_party_suggestions(
+        "site-other", "r", {"role": "owner"},
+    ))
+
+    assert result_after_reload["receivers"] == [
+        {"name": "Ramesh Transport", "phone": "9876543210"},
+    ]
+    assert result_after_reload["senders"] == []
+    assert result_other_site["receivers"] == []
+    assert result_other_tenant["receivers"] == []
 
 
 def test_audit_events_record_login_id_and_are_owner_only(monkeypatch):
@@ -722,7 +1053,9 @@ def test_booking_trip_can_be_created_without_vehicle_or_driver():
 def test_site_receipt_controls_keep_fee_configurable_and_validate_display_options():
     default_config = site_ops._site_config_with_receipt_controls({})
     assert default_config["receipt_controls"] == {
-        "hindi_conversion_enabled": True, "receipt_language": "hindi",
+        "hindi_conversion_enabled": True, "party_name_hindi_enabled": True,
+        "owner_attention_enabled": False,
+        "receipt_language": "hindi",
         "receipt_print_size": "default",
         "sender_address_enabled": True, "receiver_address_enabled": True,
         "receiver_phone_enabled": True,
@@ -732,13 +1065,16 @@ def test_site_receipt_controls_keep_fee_configurable_and_validate_display_option
         {"receipt_controls": {
             "receipt_fee": "5.00", "receipt_language": "english",
             "receipt_print_size": "80mm",
+            "owner_attention_enabled": True,
             "sender_address_enabled": False,
         }},
         {"branding": {"name": "Garage"}},
     )
     assert updated_config["branding"]["name"] == "Garage"
     assert updated_config["receipt_controls"] == {
-        "hindi_conversion_enabled": True, "receipt_language": "english",
+        "hindi_conversion_enabled": True, "party_name_hindi_enabled": True,
+        "owner_attention_enabled": True,
+        "receipt_language": "english",
         "receipt_print_size": "80mm",
         "sender_address_enabled": False, "receiver_address_enabled": True,
         "receiver_phone_enabled": True,
@@ -760,6 +1096,84 @@ def test_site_receipt_controls_keep_fee_configurable_and_validate_display_option
         site_ops._site_config_with_receipt_controls({
             "receipt_controls": {"overdue_after_days": 0},
         })
+
+
+def test_party_name_dictionary_merge_updates_by_normalized_english_phrase():
+    current = [
+        {"english": "New Payal Traders", "hindi": "नेव पयल ट्रेडर्स"},
+        {"english": "Kasva", "hindi": "कस्वा"},
+    ]
+    updates = [
+        site_ops.PartyNameTranslation(english="  New   Payal Traders ", hindi="न्यू पायल ट्रेडर्स"),
+        site_ops.PartyNameTranslation(english="Ramesh Transport", hindi="रमेश ट्रांसपोर्ट"),
+    ]
+
+    merged, changed = site_ops._merge_party_name_dictionary(current, updates)
+
+    assert merged == [
+        {"english": "New Payal Traders", "hindi": "न्यू पायल ट्रेडर्स"},
+        {"english": "Kasva", "hindi": "कस्वा"},
+        {"english": "Ramesh Transport", "hindi": "रमेश ट्रांसपोर्ट"},
+    ]
+    assert changed == [
+        {"english": "New Payal Traders", "hindi": "न्यू पायल ट्रेडर्स"},
+        {"english": "Ramesh Transport", "hindi": "रमेश ट्रांसपोर्ट"},
+    ]
+    with pytest.raises(ValidationError):
+        site_ops.PartyNameTranslation(english="New", hindi="New")
+
+
+def test_receipt_party_translation_is_saved_once_to_the_site_dictionary(monkeypatch):
+    site = {
+        "_id": "site-1", "business_id": "business-1",
+        "config": {"receipt_controls": {"party_name_hindi_enabled": True}},
+    }
+    audit_events = []
+
+    class Sites:
+        async def find_one(self, _query):
+            return site
+
+        async def update_one(self, query, update):
+            expected = query["config.hindi_dictionary"]
+            if isinstance(expected, dict) and expected.get("$exists") is False:
+                if "hindi_dictionary" in site["config"]:
+                    return SimpleNamespace(matched_count=0)
+            elif site["config"].get("hindi_dictionary") != expected:
+                return SimpleNamespace(matched_count=0)
+            site["config"]["hindi_dictionary"] = update["$set"]["config.hindi_dictionary"]
+            return SimpleNamespace(matched_count=1)
+
+    async def get_site(site_id, user, permission=None):
+        assert site_id == "site-1"
+        assert permission == "lrs:create"
+        assert user["role"] == "site_manager"
+        return site
+
+    async def audit(_site, _user, action, target_type, target_id, old=None, new=None):
+        audit_events.append((action, target_type, target_id, old, new))
+
+    monkeypatch.setattr(site_ops, "_site_for_user", get_site)
+    monkeypatch.setattr(site_ops, "_audit", audit)
+    monkeypatch.setattr(site_ops, "db", SimpleNamespace(sites=Sites()))
+    manager = {"role": "site_manager", "username": "manager"}
+    body = site_ops.PartyNameDictionaryUpdate(entries=[
+        site_ops.PartyNameTranslation(english="New Payal Traders", hindi="न्यू पायल ट्रेडर्स"),
+    ])
+
+    result = asyncio.run(site_ops.save_site_party_name_translations("site-1", body, manager))
+    repeated = asyncio.run(site_ops.save_site_party_name_translations("site-1", body, manager))
+
+    assert result == repeated == {
+        "hindi_dictionary": [
+            {"english": "New Payal Traders", "hindi": "न्यू पायल ट्रेडर्स"},
+        ],
+    }
+    assert len(audit_events) == 1
+    assert audit_events[0][0:2] == ("party_name.translation_saved", "party_name_dictionary")
+    assert audit_events[0][4] == {"entries": [
+        {"english": "New Payal Traders", "hindi": "न्यू पायल ट्रेडर्स"},
+    ]}
 
 
 def test_booking_receipt_visibility_is_tenant_wide_and_migrates_legacy_site_flags():
@@ -952,33 +1366,64 @@ def test_site_party_suggestions_are_prefix_matched_deduplicated_and_site_scoped(
             if any("phone" in stage.get("$group", {})
                    for stage in captured["pipelines"][-1]):
                 return [
-                    {"name": "Ramesh Jadhav", "phone": "9876543210"},
-                    {"name": "Ramesh Traders", "phone": "9123456780"},
+                    {"name": "Ramesh Jadhav", "phone": "9876543210", "last_seen": "2026-10-12"},
+                    {"name": "Ramesh Traders", "phone": "9123456780", "last_seen": "2026-10-11"},
                 ]
-            return [{"name": "Ramesh Transport"}]
+            return [{"name": "Ramesh Freight", "last_seen": "2026-10-13"},
+                    {"name": "Ramesh Transport", "last_seen": "2026-10-10"}]
 
     class SiteLRs:
         def aggregate(self, pipeline):
             captured.setdefault("pipelines", []).append(pipeline)
             return Cursor()
 
+    class SavedNameCursor:
+        def __init__(self, entries):
+            self.entries = entries
+
+        def sort(self, *_args):
+            return self
+
+        def limit(self, *_args):
+            return self
+
+        async def to_list(self, _limit):
+            return self.entries
+
+    class SitePartyNames:
+        def find(self, query, _projection):
+            captured.setdefault("saved_queries", []).append(query)
+            return SavedNameCursor(
+                [{"name": "Ramesh Transport", "last_seen": "2026-10-09"}]
+                if query["role"] == "sender" else
+                [{"name": "Ramesh Jadhav", "last_seen": "2026-10-08"}],
+            )
+
+    class SitePartyNameSuppressions:
+        def find(self, _query, _projection):
+            return SavedNameCursor([])
+
     async def get_site(site_id, user, permission):
         captured["authorization"] = (site_id, permission)
         return site
 
     monkeypatch.setattr(site_ops, "_site_for_user", get_site)
-    monkeypatch.setattr(site_ops, "db", SimpleNamespace(site_lrs=SiteLRs()))
+    monkeypatch.setattr(site_ops, "db", SimpleNamespace(
+        site_lrs=SiteLRs(), site_party_names=SitePartyNames(),
+        site_party_name_suppressions=SitePartyNameSuppressions(),
+    ))
 
     result = asyncio.run(site_ops.list_site_party_suggestions(
         "site-1", "r", {"role": "site_manager"},
     ))
 
     assert result == {
-        "senders": [{"name": "Ramesh Transport"}],
+        "senders": [{"name": "Ramesh Freight"}, {"name": "Ramesh Transport"}],
         "receivers": [
             {"name": "Ramesh Jadhav", "phone": "9876543210"},
             {"name": "Ramesh Traders", "phone": "9123456780"},
         ],
+        "has_more": {"senders": False, "receivers": False},
     }
     assert captured["authorization"] == ("site-1", "lrs:read")
     assert len(captured["pipelines"]) == 2
@@ -992,8 +1437,140 @@ def test_site_party_suggestions_are_prefix_matched_deduplicated_and_site_scoped(
         assert match[field[1:]] == {
             "$regex": "^r", "$options": "i",
         }
-        assert pipeline[4] == {"$limit": 50}
-    assert captured["limits"] == [50, 50]
+        assert pipeline[4] == {"$limit": 51}
+    assert captured["limits"] == [51, 51]
+    assert captured["saved_queries"] == [
+        {
+            "business_id": "business-1", "site_id": "site-1", "role": "sender",
+            "active": {"$ne": False},
+            "normalized_name": {"$regex": "^r"},
+        },
+        {
+            "business_id": "business-1", "site_id": "site-1", "role": "receiver",
+            "active": {"$ne": False},
+            "normalized_name": {"$regex": "^r"},
+        },
+    ]
+
+
+def test_site_party_suggestions_report_more_than_fifty_recent_matches(monkeypatch):
+    site = {"_id": "site-1", "business_id": "business-1"}
+
+    class Cursor:
+        def __init__(self, entries):
+            self.entries = entries
+
+        def sort(self, *_args):
+            return self
+
+        def limit(self, _amount):
+            return self
+
+        async def to_list(self, amount):
+            return self.entries[:amount]
+
+    class SiteLRs:
+        def aggregate(self, pipeline):
+            query = pipeline[0]["$match"]
+            is_sender = "sender_name" in query
+            role = "Sender" if is_sender else "Receiver"
+            prefix = query["sender_name" if is_sender else "receiver_name"]["$regex"]
+            if prefix.startswith("^ramesh") and "older" in prefix:
+                return Cursor([{
+                    "name": f"Ramesh Older {role}",
+                    "last_seen": "2024-01-01",
+                    **({} if is_sender else {"phone": "1234567890"}),
+                }])
+            return Cursor([{
+                "name": f"Ramesh {role} {index:02d}",
+                "last_seen": f"2026-10-{13 - index // 5:02d}",
+                **({} if is_sender else {"phone": ""}),
+            } for index in range(51)])
+
+    class EmptySavedNames:
+        def find(self, _query, _projection):
+            return Cursor([])
+
+    class EmptySuppressions:
+        def find(self, _query, _projection):
+            return Cursor([])
+
+    async def get_site(_site_id, _user, _permission):
+        return site
+
+    monkeypatch.setattr(site_ops, "_site_for_user", get_site)
+    monkeypatch.setattr(site_ops, "db", SimpleNamespace(
+        site_lrs=SiteLRs(), site_party_names=EmptySavedNames(),
+        site_party_name_suppressions=EmptySuppressions(),
+    ))
+
+    result = asyncio.run(site_ops.list_site_party_suggestions(
+        "site-1", "r", {"role": "owner"},
+    ))
+
+    assert len(result["senders"]) == 50
+    assert len(result["receivers"]) == 50
+    assert result["has_more"] == {"senders": True, "receivers": True}
+    assert result["senders"][0]["name"] == "Ramesh Sender 00"
+    assert result["receivers"][0]["name"] == "Ramesh Receiver 00"
+    older_match = asyncio.run(site_ops.list_site_party_suggestions(
+        "site-1", "ramesh older", {"role": "owner"},
+    ))
+    assert older_match["senders"] == [{"name": "Ramesh Older Sender"}]
+    assert older_match["receivers"] == [
+        {"name": "Ramesh Older Receiver", "phone": "1234567890"},
+    ]
+    assert older_match["has_more"] == {"senders": False, "receivers": False}
+
+
+def test_retired_party_suggestion_does_not_reappear_from_receipt_history(monkeypatch):
+    site = {"_id": "site-1", "business_id": "business-1"}
+
+    class Cursor:
+        def __init__(self, entries):
+            self.entries = entries
+
+        def sort(self, *_args):
+            return self
+
+        def limit(self, _amount):
+            return self
+
+        async def to_list(self, amount):
+            return self.entries[:amount]
+
+    class SiteLRs:
+        def aggregate(self, pipeline):
+            is_receiver = pipeline[0]["$match"].get("receiver_name") is not None
+            return Cursor([{
+                "name": "Ramesh Old Receiver", "last_seen": "2026-10-13",
+                **({"phone": "1234567890"} if is_receiver else {}),
+            }] if is_receiver else [])
+
+    class EmptyRegistry:
+        def find(self, *_args):
+            return Cursor([])
+
+    class Suppressions:
+        def find(self, query, _projection):
+            return Cursor([{"normalized_name": "ramesh old receiver"}]
+                          if query["role"] == "receiver" else [])
+
+    async def get_site(_site_id, _user, _permission):
+        return site
+
+    monkeypatch.setattr(site_ops, "_site_for_user", get_site)
+    monkeypatch.setattr(site_ops, "db", SimpleNamespace(
+        site_lrs=SiteLRs(), site_party_names=EmptyRegistry(),
+        site_party_name_suppressions=Suppressions(),
+    ))
+
+    result = asyncio.run(site_ops.list_site_party_suggestions(
+        "site-1", "ramesh", {"role": "owner"},
+    ))
+
+    assert result["receivers"] == []
+    assert result["senders"] == []
 
 
 def test_booking_receipt_requires_at_least_one_nonempty_goods_row():
@@ -1330,6 +1907,11 @@ def test_reversal_index_excludes_non_reversal_payments_and_migrates_sparse_index
         "kind": "reversal",
         "reversal_of": {"$exists": True},
     }
+    suppression_index = next(
+        options for _, options in database.site_party_name_suppressions.indexes
+        if options.get("name") == "site_party_name_suppression_unique"
+    )
+    assert suppression_index["unique"] is True
     assert database.site_payments.dropped_indexes == ["site_payment_reversal_unique"]
     expense_index = next(
         options for _, options in database.expenses.indexes
@@ -1492,7 +2074,12 @@ def test_site_ledger_xlsx_omits_addresses_and_exports_hindi_ledger_values(monkey
             return {"_id": "trip-1", "trip_ref": "NGP29092026-01"}
 
     async def site_for_user(*_args):
-        return {"_id": "site-1", "business_id": "business-1", "code": "NGP", "name": "Garage"}
+        return {
+            "_id": "site-1", "business_id": "business-1", "code": "NGP", "name": "Garage",
+            "config": {"hindi_dictionary": [
+                {"english": "General", "hindi": "जनरल ऑफिस"},
+            ]},
+        }
 
     monkeypatch.setattr(site_ops, "_site_for_user", site_for_user)
     monkeypatch.setattr(site_ops, "_can_read_site_finances", lambda *_args: True)
@@ -1513,7 +2100,7 @@ def test_site_ledger_xlsx_omits_addresses_and_exports_hindi_ledger_values(monkey
     ]
     assert sheet["A2"].value == "Trip number: NGP29092026-01"
     assert sheet["C5"].value == "अनिकेत"
-    assert sheet["D5"].value == "कस्वा जनरल"
+    assert sheet["D5"].value == "कस्वा जनरल ऑफिस"
     assert sheet["E5"].value == "२ - हार्डवेयर/औज़ार, १० - सीमेंट बोरी, ३० - अनाज डिब्बा"
     assert sheet["F5"].value == 42
     assert sheet["G5"].value == 100
@@ -1703,7 +2290,9 @@ def test_lr_update_persists_phone_and_preserves_party_mobile_when_omitted(
 
     lrs = SiteLRs()
     parties = Parties()
-    monkeypatch.setattr(site_ops, "db", SimpleNamespace(site_lrs=lrs, parties=parties))
+    monkeypatch.setattr(site_ops, "db", SimpleNamespace(
+        site_lrs=lrs, parties=parties, site_party_names=_SitePartyNames(),
+    ))
     monkeypatch.setattr(site_ops, "_site_for_user", _async_value(site))
     monkeypatch.setattr(site_ops, "_trip", _async_value({"status": "open"}))
     monkeypatch.setattr(site_ops, "_lr", _async_value(lr))
@@ -1743,7 +2332,9 @@ def test_owner_can_edit_a_paid_receipt_without_receiver_correction_reason(monkey
         async def update_one(self, _query, update):
             lr.update(update["$set"])
 
-    monkeypatch.setattr(site_ops, "db", SimpleNamespace(site_lrs=SiteLRs()))
+    monkeypatch.setattr(site_ops, "db", SimpleNamespace(
+        site_lrs=SiteLRs(), site_party_names=_SitePartyNames(),
+    ))
     monkeypatch.setattr(site_ops, "_site_for_user", _async_value(site))
     monkeypatch.setattr(site_ops, "_trip", _async_value(trip))
     monkeypatch.setattr(site_ops, "_lr", _async_value(lr))
@@ -1833,7 +2424,9 @@ def test_lr_receiver_and_first_bhada_save_posts_financial_event_to_new_party(mon
         async def update_one(self, _query, update):
             lr.update(update["$set"])
 
-    monkeypatch.setattr(site_ops, "db", SimpleNamespace(site_lrs=SiteLRs()))
+    monkeypatch.setattr(site_ops, "db", SimpleNamespace(
+        site_lrs=SiteLRs(), site_party_names=_SitePartyNames(),
+    ))
     monkeypatch.setattr(site_ops, "_site_for_user", _async_value(site))
     monkeypatch.setattr(site_ops, "_trip", _async_value(trip))
     monkeypatch.setattr(site_ops, "_lr", _async_value(lr))
@@ -1902,7 +2495,9 @@ def test_owner_can_correct_receiver_after_payments_without_a_correction_reason(m
     async def record_audit(*_args, **kwargs):
         audit.append(kwargs)
 
-    monkeypatch.setattr(site_ops, "db", SimpleNamespace(site_lrs=SiteLRs()))
+    monkeypatch.setattr(site_ops, "db", SimpleNamespace(
+        site_lrs=SiteLRs(), site_party_names=_SitePartyNames(),
+    ))
     monkeypatch.setattr(site_ops, "_site_for_user", _async_value(site))
     monkeypatch.setattr(site_ops, "_trip", _async_value(trip))
     monkeypatch.setattr(site_ops, "_lr", _async_value(lr))

@@ -14,6 +14,7 @@ import { dmy, dmyDateTime, money0 } from "../lib/format";
 import { useMaster } from "../lib/hooks";
 import { DEFAULT_BOOKING_GOODS } from "../lib/bookingGoods";
 import transportHindiDictionary from "../lib/transportHindiDictionary.json";
+import PartyNameManager from "./PartyNameManager";
 
 const field = "fld w-full";
 const siteIdentityKey = (value) => value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
@@ -314,7 +315,8 @@ export default function SiteConsole({ user, adminOnly = false }) {
   const [siteForm, setSiteForm] = useState({ name: "", code: "", location: "", timezone: "Asia/Kolkata" });
   const [siteEdit, setSiteEdit] = useState({ name: "", location: "", city: "", timezone: "" });
   const [receiptControls, setReceiptControls] = useState({
-    hindi_conversion_enabled: true, receipt_language: "hindi",
+    hindi_conversion_enabled: true, party_name_hindi_enabled: true, receipt_language: "hindi",
+    owner_attention_enabled: false,
     receipt_print_size: "default",
     sender_address_enabled: true, receiver_address_enabled: true, receiver_phone_enabled: true,
     receipt_fee: "2.00",
@@ -446,6 +448,8 @@ export default function SiteConsole({ user, adminOnly = false }) {
         const globalVisibility = visibilityResponse?.data || {};
         setReceiptControls({
           hindi_conversion_enabled: configuredReceiptControls.hindi_conversion_enabled !== false,
+          party_name_hindi_enabled: configuredReceiptControls.party_name_hindi_enabled !== false,
+          owner_attention_enabled: configuredReceiptControls.owner_attention_enabled === true,
           receipt_language: configuredReceiptControls.receipt_language === "english" ? "english" : "hindi",
           receipt_print_size: ["80mm", "58mm"].includes(configuredReceiptControls.receipt_print_size)
             ? configuredReceiptControls.receipt_print_size : "default",
@@ -527,6 +531,8 @@ export default function SiteConsole({ user, adminOnly = false }) {
       const globalVisibility = globalVisibilityResponse.data || {};
       setReceiptControls({
         hindi_conversion_enabled: configuredReceiptControls.hindi_conversion_enabled !== false,
+        party_name_hindi_enabled: configuredReceiptControls.party_name_hindi_enabled !== false,
+        owner_attention_enabled: configuredReceiptControls.owner_attention_enabled === true,
         receipt_language: configuredReceiptControls.receipt_language === "english" ? "english" : "hindi",
         receipt_print_size: ["80mm", "58mm"].includes(configuredReceiptControls.receipt_print_size)
           ? configuredReceiptControls.receipt_print_size : "default",
@@ -614,6 +620,8 @@ export default function SiteConsole({ user, adminOnly = false }) {
           transport_hindi_dictionary_overrides: transportHindiDictionaryOverrides(transportDictionary),
           receipt_controls: {
             hindi_conversion_enabled: receiptControls.hindi_conversion_enabled,
+            party_name_hindi_enabled: receiptControls.party_name_hindi_enabled,
+            owner_attention_enabled: receiptControls.owner_attention_enabled,
             receipt_language: receiptControls.receipt_language,
             receipt_print_size: receiptControls.receipt_print_size,
             receipt_fee: receiptControls.receipt_fee,
@@ -854,9 +862,15 @@ export default function SiteConsole({ user, adminOnly = false }) {
           </select>
         </label>
       </Card>
+      {siteId && <PartyNameManager key={siteId} siteId={siteId} />}
 
       <details open className="rounded-xl border border-line bg-white p-4">
-        <summary className="min-h-11 cursor-pointer content-center font-semibold text-brand-700">Site setup</summary>
+        <summary className="min-h-11 cursor-pointer content-center font-semibold text-brand-700">
+          <span className="block">Site setup</span>
+          <span className="mt-1 block text-sm font-normal text-muted">
+            Add or update a site, its location and time zone, or review legacy-data assignment.
+          </span>
+        </summary>
         <div className="mt-3 space-y-3">
           <Card className="p-4">
             <h2 className="mb-3 font-semibold">Add a site</h2>
@@ -993,21 +1007,23 @@ export default function SiteConsole({ user, adminOnly = false }) {
 
       <details open className="rounded-xl border border-line bg-white p-4">
         <summary className="min-h-11 cursor-pointer content-center font-semibold text-brand-700">
-          Booking settings
+          <span className="block">Booking settings</span>
+          <span className="mt-1 block text-sm font-normal text-muted">
+            Receipt design, entry options, Hindi names, and site dashboard. One save applies all changes below.
+          </span>
         </summary>
         {siteId ? <form onSubmit={saveReceiptControls} className="mt-3 space-y-4">
-          <Card className="space-y-4 p-4">
-            <div className="rounded-lg bg-brand-50 p-3">
-              <h2 className="font-semibold">Set up receipts for {sites.find((site) => site.id === siteId)?.name || "this site"}</h2>
-              <p className="mt-1 text-sm text-muted">
-                Choose how printed receipts look, what staff can enter, and which goods are suggested. Save once after making changes.
-              </p>
-            </div>
-            <section className="booking-settings-group space-y-3">
+          <div className="rounded-lg bg-brand-50 p-3">
+            <h2 className="font-semibold">Settings for {sites.find((site) => site.id === siteId)?.name || "this site"}</h2>
+            <p className="mt-1 text-sm text-muted">
+              Changes stay on this site unless a setting says it applies to every site.
+            </p>
+          </div>
+            <section className="booking-settings-group space-y-3 rounded-lg border border-line bg-white p-4">
               <div>
-                <h3 className="font-semibold">1. Printed receipt header</h3>
+                <h3 className="font-semibold">Receipt appearance</h3>
                 <p className="mt-1 text-sm text-muted">
-                  These details appear on receipts for this site. The company name and logo identify the business; branch phone lines and legal text appear in the header.
+                  Choose the name, contact details, and logo printed at the top of this site’s receipts.
                 </p>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -1128,11 +1144,11 @@ export default function SiteConsole({ user, adminOnly = false }) {
                 </label>
               </div>
             </section>
-            <section className="booking-settings-group space-y-3">
+            <section className="booking-settings-group space-y-3 rounded-lg border border-line bg-white p-4">
               <div>
-                <h3 className="font-semibold">2. Receipt defaults</h3>
+                <h3 className="font-semibold">Receipt and name defaults</h3>
                 <p className="mt-1 text-sm text-muted">
-                  Set the print language, Hindi conversion, default fee, and when unpaid bookings become overdue.
+                  Choose what staff enter, the printed language, and defaults for new receipts and payment follow-up.
                 </p>
               </div>
             <label className="flex items-start gap-3 text-sm">
@@ -1143,6 +1159,19 @@ export default function SiteConsole({ user, adminOnly = false }) {
                 }))} />
               <span><strong>Convert English entry to Hindi for ledger and printing</strong>
                 <span className="mt-1 block text-muted">Receipt entry and editing remain in English. Disabling conversion applies to new and edited receipts.</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-3 text-sm">
+              <input type="checkbox" aria-label="Show Hindi party-name fields on receipts"
+                className="mt-1 h-4 w-4 accent-brand-700"
+                checked={receiptControls.party_name_hindi_enabled}
+                onChange={(event) => setReceiptControls((current) => ({
+                  ...current, party_name_hindi_enabled: event.target.checked,
+                }))} />
+              <span><strong>Show editable Hindi sender and receiver names</strong>
+                <span className="mt-1 block text-muted">
+                  Fields auto-fill from English. A corrected spelling is saved to this site's shared Hindi dictionary after the receipt saves, and is then used in receipt lists, prints, the ledger, and exports.
+                </span>
               </span>
             </label>
             <label className="block max-w-xs text-sm">Language printed on new receipts
@@ -1185,11 +1214,11 @@ export default function SiteConsole({ user, adminOnly = false }) {
               <span className="mt-1 block text-muted">A payment becomes overdue after this many days without payment.</span>
             </label>
             </section>
-            <section className="space-y-3 border-t border-line pt-4">
+            <section className="booking-settings-group space-y-3 rounded-lg border border-line bg-white p-4">
               <div>
-                <h3 className="font-semibold">3. Optional contact details</h3>
+                <h3 className="font-semibold">Optional receipt contact fields</h3>
                 <p className="mt-1 text-sm text-muted">
-                  These switches apply to every site. Turn a detail on to let staff enter it and include it on printed receipts.
+                  These switches apply to every site. Turn on a detail to let staff enter it and include it on printed receipts.
                 </p>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -1208,9 +1237,31 @@ export default function SiteConsole({ user, adminOnly = false }) {
               </label>)}
               </div>
             </section>
-            <section className="booking-settings-group space-y-3">
+            <section className="booking-settings-group space-y-3 rounded-lg border border-line bg-white p-4">
               <div>
-                <h3 className="font-semibold">4. Suggested goods names</h3>
+                <h3 className="font-semibold">Dashboard reminders</h3>
+                <p className="mt-1 text-sm text-muted">
+                  Optional owner-only reminders for overdue promises, receipts missing Bhada, and open trips.
+                </p>
+              </div>
+              <label className="flex items-start gap-3 rounded-lg border border-line p-3 text-sm">
+                <input type="checkbox" aria-label="Show owner needs-attention reminders"
+                  className="mt-1 h-4 w-4 accent-brand-700"
+                  checked={receiptControls.owner_attention_enabled}
+                  onChange={(event) => setReceiptControls((current) => ({
+                    ...current, owner_attention_enabled: event.target.checked,
+                  }))} />
+                <span>
+                  <strong className="block">Show “Needs attention” on the owner dashboard</strong>
+                  <span className="mt-1 block text-muted">
+                    Off by default. When enabled, the dashboard checks this site for items that may need review. It does not change payments or close trips.
+                  </span>
+                </span>
+              </label>
+            </section>
+            <section className="booking-settings-group space-y-3 rounded-lg border border-line bg-white p-4">
+              <div>
+                <h3 className="font-semibold">Suggested goods</h3>
                 <p className="mt-1 text-sm text-muted">
                   These options appear in the goods field while creating a receipt. Staff can always type a different name.
                 </p>
@@ -1243,11 +1294,11 @@ export default function SiteConsole({ user, adminOnly = false }) {
                 </li>)}
               </ul> : <p className="text-sm text-muted">No suggestions. Staff can still enter goods descriptions manually.</p>}
             </section>
-            <section className="booking-settings-group space-y-3" data-testid="hindi-dictionary-settings">
+            <section className="booking-settings-group space-y-3 rounded-lg border border-line bg-white p-4" data-testid="hindi-dictionary-settings">
               <div>
-                <h3 className="font-semibold">5. English to Hindi word translations</h3>
+                <h3 className="font-semibold">Hindi dictionary</h3>
                 <p className="mt-1 text-sm text-muted">
-                  Browse the transport dictionary by category. Staff can search using the English term or Hinglish spelling; receipts use the Hindi term. Edit entries below and save booking settings to apply changes to this site.
+                  Add verified translations for business names and goods. These site-specific entries take priority over automatic transliteration and are reused on receipts, ledgers, and exports.
                 </p>
               </div>
               <label className="block max-w-lg text-sm">Find a dictionary entry
@@ -1324,7 +1375,7 @@ export default function SiteConsole({ user, adminOnly = false }) {
                   </p>}
               </div>
               <div className="grid items-end gap-2 sm:grid-cols-[1fr_1fr_auto]">
-                <label className="text-sm">English word or phrase
+                <label className="text-sm">English/Hinglish word, name, or phrase
                   <input className={field} aria-label="English word to translate" maxLength={80}
                     value={hindiDictionaryDraft.english}
                     onChange={(event) => setHindiDictionaryDraft((current) => ({
@@ -1358,14 +1409,21 @@ export default function SiteConsole({ user, adminOnly = false }) {
                 </li>)}
               </ul> : <p className="text-sm text-muted">No custom translations yet.</p>}
             </section>
+          <div className="sticky bottom-2 z-10 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-white/95 p-3 shadow-lg backdrop-blur">
+            <p className="text-sm text-muted">Save once to apply all pending booking-setting changes.</p>
             <Btn type="submit">Save booking settings</Btn>
-          </Card>
+          </div>
         </form> : <p className="mt-3 text-sm text-muted">Select a site to manage receipt controls.</p>}
       </details>
 
       <details data-testid="booking-access-management" open={Boolean(temporaryCredential) || undefined}
         className="rounded-xl border border-line bg-white p-4">
-        <summary className="min-h-11 cursor-pointer content-center font-semibold text-brand-700">Booking access management</summary>
+        <summary className="min-h-11 cursor-pointer content-center font-semibold text-brand-700">
+          <span className="block">Booking access management</span>
+          <span className="mt-1 block text-sm font-normal text-muted">
+            Create manager accounts and grant only the actions they need at each site.
+          </span>
+        </summary>
         <div className="mt-3 space-y-3">
           {siteId && <Card className="p-4">
             <h2 className="mb-3 font-semibold">Assign or replace the site manager</h2>
@@ -1510,7 +1568,12 @@ export default function SiteConsole({ user, adminOnly = false }) {
       </details>
 
       <details className="rounded-xl border border-line bg-white p-4">
-        <summary className="min-h-11 cursor-pointer content-center font-semibold text-brand-700">Booking categories</summary>
+        <summary className="min-h-11 cursor-pointer content-center font-semibold text-brand-700">
+          <span className="block">Booking categories</span>
+          <span className="mt-1 block text-sm font-normal text-muted">
+            Add reusable goods and container choices for receipt entry.
+          </span>
+        </summary>
         {siteId ? <Card className="mt-3 grid gap-4 p-4 md:grid-cols-2">
           <form onSubmit={(event) => addCategory("goods", event)} className="flex gap-2">
             <input className={field} aria-label="New goods category" placeholder="Add goods category"

@@ -10,9 +10,82 @@ jest.mock("../lib/api", () => ({
   errMsg: (error) => error?.response?.data?.detail || "Request failed",
 }));
 
+const originalResizeObserver = globalThis.ResizeObserver;
+
 describe("simple booking workflow", () => {
   const { container, site, trip, flushMicrotasks, getByLabelText, getByRole, clickButton,
-    createLedgerRow, mockBookingApi, renderBooking, setInput } = registerBookingTestHarness();
+    createLedgerRow, mockBookingApi, renderBooking, clearBooking, setInput } = registerBookingTestHarness();
+
+  afterEach(() => {
+    if (originalResizeObserver) globalThis.ResizeObserver = originalResizeObserver;
+    else delete globalThis.ResizeObserver;
+  });
+
+  it("reviews and prints a date-scoped handover without recording changes", async () => {
+    const receipt = createLedgerRow({
+      id: "lr-handover", lr_ref: "NGP-LR-HANDOVER", trip_id: trip.id,
+      trip_ref: trip.trip_ref, rent: "100.00", hamali: "5.00", receipt_fee: "2.00",
+      total: "107.00", paid: "30.00", outstanding: "72.00", reconciled: false,
+    });
+    mockBookingApi({ trips: [trip], ledgerRows: [receipt] });
+    await renderBooking("dashboard", "owner");
+
+    const reviewButton = await screen.findByRole("button", { name: "Review handover" });
+    await act(async () => {
+      reviewButton.click();
+      await flushMicrotasks();
+    });
+    const handover = await screen.findByRole("region", { name: "Daily handover review" });
+    expect(handover.textContent).toContain("NGP29092026-01");
+    expect(handover.textContent).toContain("NGP-LR-HANDOVER");
+    expect(handover.textContent).toContain("1 receipts needing order check");
+    expect(handover.textContent).toContain("Collected₹30");
+    expect(handover.textContent).toContain("Outstanding₹72");
+    expect(handover.textContent).toContain("Review only");
+
+    const printDescriptor = Object.getOwnPropertyDescriptor(window, "print");
+    window.print = jest.fn();
+    try {
+      await act(async () => {
+        within(handover).getByRole("button", { name: "Print / save PDF" }).click();
+        await flushMicrotasks();
+      });
+      await waitFor(() => expect(window.print).toHaveBeenCalled());
+      const printable = document.querySelector(".booking-handover-print");
+      expect(printable?.textContent).toContain("NGP-LR-HANDOVER");
+    } finally {
+      if (printDescriptor) Object.defineProperty(window, "print", printDescriptor);
+      else delete window.print;
+    }
+    expect(api.post).not.toHaveBeenCalledWith(expect.stringMatching(/settlement|\/close/), expect.anything());
+  });
+
+  it("opens an unpriced receipt from the owner Finance action queue without changing it", async () => {
+    const unpriced = createLedgerRow({
+      id: "lr-needs-price", lr_ref: "NGP-LR-PRICE", site_id: site.id,
+      trip_id: trip.id, trip_ref: trip.trip_ref, rent: null, hamali: "0.00",
+    });
+    mockBookingApi({
+      trips: [trip],
+      financeRows: [{
+        id: unpriced.id, site_id: site.id, trip_id: trip.id,
+        trip_ref: trip.trip_ref, lr_ref: unpriced.lr_ref,
+        receiver_name: "Price Receiver", rent: null, outstanding: "0.00",
+      }],
+      receipts: [unpriced],
+    });
+    await renderBooking("finance", "owner");
+
+    const queue = await screen.findByRole("region", { name: "Owner action queue" });
+    await act(async () => {
+      within(queue).getByRole("button", { name: "Open receipt to price" }).click();
+      await flushMicrotasks();
+    });
+    await waitFor(() => expect(container.querySelector(".receipt-form-title")?.textContent)
+      .toContain("Edit receipt"));
+    expect(getByLabelText("Receipt Bhada").value).toBe("");
+    expect(api.patch).not.toHaveBeenCalled();
+  });
 
   it("applies dictionary terms while preserving names, codes, and Hindi input", () => {
     expect(romanHindi("Ramesh")).toBe("Ramesh");
@@ -47,6 +120,16 @@ describe("simple booking workflow", () => {
     expect(partyName("Chandnamal Hiralal")).toBe("चंदनमल हीरालाल");
     expect(partyName("J.L. Chandani")).toBe("J.L. चंदानी");
     expect(partyName("Suresh Patil")).toBe("सुरेश पाटिल");
+    expect(partyName("Kasva Traders")).toBe("कस्वा ट्रेडर्स");
+    expect(partyName("TRADERS")).toBe("ट्रेडर्स");
+    expect(partyName("New")).toBe("न्यू");
+    expect(partyName("New Payal Traders")).toBe("न्यू पयल ट्रेडर्स");
+    expect(partyName("Kasva Traders", "", "hi", [
+      { english: "Traders", hindi: "व्यापारी" },
+    ])).toBe("कस्वा व्यापारी");
+    expect(partyName("Kasva Traders", "", "hi", [
+      { english: "Kasva Traders", hindi: "कस्वा ट्रेडिंग कंपनी" },
+    ])).toBe("कस्वा ट्रेडिंग कंपनी");
     expect(romanHindi("vehicle rent")).toBe("गाड़ी भाड़ा");
     expect(romanHindi("hamali")).toBe("हमाली");
     expect(romanHindi("कपड़ा")).toBe("कपड़ा");
@@ -101,6 +184,7 @@ describe("simple booking workflow", () => {
         goods_rows: [{ type: "Tiles", quantity: 123, description: "Large order" }],
       })],
     });
+
     await renderBooking("ledger");
     const table = await screen.findByRole("table", { name: "Selected ledger totals" });
     await waitFor(() => expect(table.querySelector('[data-ledger-column="date"]')).not.toBeNull());
@@ -123,6 +207,22 @@ describe("simple booking workflow", () => {
     await waitFor(() => expect(JSON.parse(
       localStorage.getItem(`booking_ledger_column_widths:${encodeURIComponent(site.id)}`),
     ).receipt).toBe(230));
+  });
+
+  it("opens the ledger for the selected receipt trip's date", async () => {
+    localStorage.setItem("booking_trip_id", trip.id);
+    mockBookingApi({ trips: [trip] });
+    await renderBooking("receipts", "owner", true);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Receipts" })).not.toBeNull());
+    await act(async () => {
+      screen.getByRole("button", { name: "Go to ledger" }).click();
+      await flushMicrotasks();
+    });
+    await waitFor(() => expect(container.querySelector('input[type="date"]').value)
+      .toBe(trip.operating_date));
+    expect(api.get).toHaveBeenCalledWith(`/sites/${site.id}/trips`, expect.objectContaining({
+      params: expect.objectContaining({ from_date: trip.operating_date, to_date: trip.operating_date }),
+    }));
   });
 
   it("uses available ledger width to give long goods details room instead of leaving a blank edge", async () => {
@@ -192,6 +292,163 @@ describe("simple booking workflow", () => {
     expect(submittedReceipt).not.toHaveProperty("sender_name_hindi");
     expect(submittedReceipt.receipt_date).toBe(trip.operating_date);
     expect(submittedReceipt.goods_rows).toEqual([{ type: "Cement", type_hindi: "सीमेंट", description: "", description_hindi: "", quantity: 3 }]);
+  });
+
+  it("keeps owner attention reminders off unless enabled in the selected site's settings", async () => {
+    mockBookingApi({ trips: [trip] });
+    await renderBooking("dashboard", "owner");
+
+    expect(screen.queryByRole("region", { name: "Needs attention" })).toBeNull();
+    expect(api.get).not.toHaveBeenCalledWith(`/sites/${site.id}/booking-finance`);
+  });
+
+  it("shows enabled owner attention items, filters exact overdue promises, and opens trip closeout review", async () => {
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+    const financeRows = [
+      {
+        id: "lr-late", lr_ref: "NGP-LR-LATE", trip_ref: trip.trip_ref,
+        receiver_name: "Late Receiver", promised_date: "2020-01-01",
+        outstanding: "50.00", rent: "100.00",
+      },
+      {
+        id: "lr-aged", lr_ref: "NGP-LR-AGED", receiver_name: "Older Receiver",
+        age_days: 90, outstanding: "20.00", rent: "100.00",
+      },
+      {
+        id: "lr-paid", lr_ref: "NGP-LR-PAID", receiver_name: "Paid Receiver",
+        promised_date: "2020-01-01", outstanding: "0.00", rent: "100.00",
+      },
+      {
+        id: "lr-unpriced", lr_ref: "NGP-LR-UNPRICED", receiver_name: "Unpriced Receiver",
+        rent: null, outstanding: "0.00",
+      },
+      { id: "lr-void", lr_ref: "NGP-LR-VOID", rent: null, voided: true },
+    ];
+    mockBookingApi({
+      sites: [{ ...site, config: { receipt_controls: { owner_attention_enabled: true } } }],
+      trips: [trip], financeRows,
+    });
+    await clearBooking();
+    await renderBooking("dashboard", "owner");
+
+    const attention = await screen.findByRole("region", { name: "Needs attention" });
+    const overdue = within(attention).getByRole("region", { name: "Overdue promised payments" });
+    const unpriced = within(attention).getByRole("region", { name: "Receipts missing charges" });
+    expect(await within(overdue).findByText(/NGP-LR-LATE/)).not.toBeNull();
+    expect(overdue.textContent).not.toContain("NGP-LR-AGED");
+    expect(overdue.textContent).not.toContain("NGP-LR-PAID");
+    expect(unpriced.textContent).toContain("NGP-LR-UNPRICED");
+    expect(unpriced.textContent).not.toContain("NGP-LR-VOID");
+
+    await act(async () => {
+      within(overdue).getByRole("button", { name: /NGP-LR-LATE/ }).click();
+      await flushMicrotasks();
+    });
+    await waitFor(() => expect(getByLabelText("Filter finance receipts").value).toBe("overdue-promise"));
+
+    await clearBooking();
+    await renderBooking("dashboard", "owner");
+    const unpricedButton = await screen.findByRole("button", { name: /NGP-LR-UNPRICED/ });
+    await act(async () => {
+      unpricedButton.click();
+      await flushMicrotasks();
+    });
+    await waitFor(() => expect(getByLabelText("Filter finance receipts").value).toBe("unpriced"));
+
+    await clearBooking();
+    await renderBooking("dashboard", "owner");
+    const tripItem = await screen.findByRole("button", { name: /NGP29092026-01.*Review closeout/ });
+    await act(async () => {
+      tripItem.click();
+      await flushMicrotasks();
+    });
+    expect(await screen.findByRole("dialog", { name: "Check trip money before closing" })).not.toBeNull();
+    expect(api.get).toHaveBeenCalledWith(`/sites/${site.id}/trips/${trip.id}/lrs`, {
+      params: { limit: 100, offset: 0 },
+    });
+  });
+
+  it("retries an uncertain new receipt save with the exact same payload and idempotency key", async () => {
+    let receiptSaveAttempts = 0;
+    api.post.mockImplementation((path, body) => {
+      if (path.endsWith("/trips")) return Promise.resolve({ data: trip });
+      if (path.endsWith("/lrs")) {
+        receiptSaveAttempts += 1;
+        return receiptSaveAttempts === 1
+          ? Promise.reject(new Error("Connection lost"))
+          : Promise.resolve({ data: { ...body, id: "lr-retry", lr_ref: "NGP-LR-RETRY" } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    await renderBooking();
+    await clickButton("Create Trip");
+    await act(async () => {
+      container.querySelector("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await flushMicrotasks();
+    });
+    const receiverInput = getByLabelText("Receiver name in English");
+    expect(document.activeElement).toBe(receiverInput);
+    await act(async () => {
+      fireEvent.change(receiverInput, { target: { value: "Retry Receiver" } });
+      fireEvent.change(getByLabelText("Goods and description row 1"), { target: { value: "Cement" } });
+      fireEvent.change(getByLabelText("Quantity row 1"), { target: { value: "2" } });
+    });
+    await act(async () => {
+      screen.getByRole("button", { name: "Save receipt", exact: true }).click();
+      await flushMicrotasks();
+    });
+    expect(await screen.findByRole("button", { name: "Retry save" })).not.toBeNull();
+    expect(screen.getByText(/Save unconfirmed — it may already exist/)).not.toBeNull();
+    const initialRequest = api.post.mock.calls.find(([path]) => path.endsWith("/lrs"));
+
+    await act(async () => {
+      screen.getByRole("button", { name: "Retry save" }).click();
+      await flushMicrotasks();
+    });
+    const receiptRequests = api.post.mock.calls.filter(([path]) => path.endsWith("/lrs"));
+    expect(receiptRequests).toHaveLength(2);
+    expect(receiptRequests[1][0]).toBe(initialRequest[0]);
+    expect(receiptRequests[1][1]).toEqual(initialRequest[1]);
+    expect(receiptRequests[1][1].idempotency_key).toBe(initialRequest[1].idempotency_key);
+    expect(await screen.findByText(/Saved NGP-LR-RETRY successfully/)).not.toBeNull();
+    await waitFor(() => expect(document.activeElement)
+      .toBe(getByLabelText("Receiver name in English")));
+  });
+
+  it("shows device offline and clearly marks a preflight save as not sent on mobile", async () => {
+    const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
+    window.innerWidth = 390;
+    try {
+      await renderBooking();
+      await clickButton("Create Trip");
+      await act(async () => {
+        container.querySelector("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+        await flushMicrotasks();
+      });
+      expect(container.querySelector("#receipt-entry-form .receipt-form-actions")).not.toBeNull();
+      await act(async () => {
+        setInput("Receiver name in English", "Offline Receiver");
+        setInput("Goods and description row 1", "Cement");
+        setInput("Quantity row 1", "1");
+      });
+      Object.defineProperty(window.navigator, "onLine", { configurable: true, value: false });
+      await act(async () => {
+        window.dispatchEvent(new Event("offline"));
+        await flushMicrotasks();
+      });
+      expect(screen.getByRole("status", { name: "Connection status" }).textContent).toContain("Device offline");
+      await clickButton("Save receipt");
+      expect(screen.getByRole("alert").textContent).toContain("Offline — receipt not saved.");
+      expect(screen.getByText(/Not saved — this request was not accepted/)).not.toBeNull();
+      expect(api.post.mock.calls.some(([path]) => path.endsWith("/lrs"))).toBe(false);
+    } finally {
+      if (originalWidth) Object.defineProperty(window, "innerWidth", originalWidth);
+      else delete window.innerWidth;
+    }
   });
 
   it("creates a trip without vehicle or driver, then starts with one goods row", async () => {
@@ -574,10 +831,14 @@ describe("simple booking workflow", () => {
       if (path === `/sites/${site.id}/party-suggestions`) {
         return Promise.resolve({
           data: config.params.q.toLowerCase() === "k"
-            ? { senders: [{ name: "Kasva General" }], receivers: [] }
+            ? {
+              senders: [{ name: "Kasva General" }], receivers: [],
+              has_more: { senders: true, receivers: false },
+            }
             : {
               senders: [{ name: "Ramesh Jadhav" }],
               receivers: [{ name: "Ramesh Jadhav", phone: "9876543210" }],
+              has_more: { senders: false, receivers: true },
             },
         });
       }
@@ -593,6 +854,8 @@ describe("simple booking workflow", () => {
     await waitFor(() => expect(Array.from(
       container.querySelectorAll("#previous-sender-options option"),
     ).map((option) => option.value)).toContain("Kasva General"));
+    expect(screen.getAllByRole("status").some((status) =>
+      status.textContent.includes("Showing the 50 most recent matches"))).toBe(true);
     fireEvent.change(senderInput, { target: { value: "Kasva General" } });
     expect(senderInput.value).toBe("Kasva General");
 
@@ -621,9 +884,14 @@ describe("simple booking workflow", () => {
       }
       return defaultGet(path, config);
     });
+    const correctedDictionary = [
+      { english: "New Payal Traders", hindi: "न्यू पायल ट्रेडर्स" },
+    ];
     api.post.mockImplementation((path, body) => Promise.resolve({
-      data: path.endsWith("/lrs")
-        ? (savedReceipt = { ...body, id: "lr-hindi", lr_ref: "NGP-LR-02" }) : trip,
+      data: path.endsWith("/party-name-dictionary")
+        ? { hindi_dictionary: correctedDictionary }
+        : path.endsWith("/lrs")
+          ? (savedReceipt = { ...body, id: "lr-hindi", lr_ref: "NGP-LR-02" }) : trip,
     }));
     await renderBooking("receipts");
     await waitFor(() => expect(getByLabelText("Receiver name in English")).not.toBeNull());
@@ -631,8 +899,9 @@ describe("simple booking workflow", () => {
     await act(async () => {
       setInput("Sender name in English", "Aniket");
       setInput("Sender name in Hindi", "अनिकेत");
-      setInput("Receiver name in English", "Ashok Bogande");
-      setInput("Receiver name in Hindi", "अशोक बोगांडे");
+      setInput("Receiver name in English", "New Payal Traders");
+      expect(getByLabelText("Receiver name in Hindi").value).toBe("न्यू पयल ट्रेडर्स");
+      setInput("Receiver name in Hindi", "न्यू पायल ट्रेडर्स");
       setInput("Goods and description row 1", "Cement");
       setInput("Quantity row 1", "1");
     });
@@ -642,14 +911,30 @@ describe("simple booking workflow", () => {
     expect(savedRequest).toMatchObject({
       sender_name: "Aniket",
       sender_name_hindi_verified: "अनिकेत",
-      receiver_name: "Ashok Bogande",
-      receiver_name_hindi_verified: "अशोक बोगांडे",
+      receiver_name: "New Payal Traders",
+      receiver_name_hindi_verified: "न्यू पायल ट्रेडर्स",
+    });
+    expect(api.post).toHaveBeenCalledWith(`/sites/${site.id}/party-name-dictionary`, {
+      entries: [{ english: "New Payal Traders", hindi: "न्यू पायल ट्रेडर्स" }],
     });
     expect(container.querySelector(".receipt-list-parties").textContent)
-      .toContain("अनिकेत → अशोक बोगांडे");
+      .toContain("अनिकेत → न्यू पायल ट्रेडर्स");
     await clickButton("हिंदी");
     await waitFor(() => expect(container.querySelector(".receipt-list-parties").textContent)
-      .toContain("अनिकेत → अशोक बोगांडे"));
+      .toContain("अनिकेत → न्यू पायल ट्रेडर्स"));
+    expect(partyName("New Payal Traders", "", "hi", correctedDictionary)).toBe("न्यू पायल ट्रेडर्स");
+  });
+
+  it("hides Hindi party-name fields when disabled by the owner for the site", async () => {
+    localStorage.setItem("booking_trip_id", trip.id);
+    mockBookingApi({
+      sites: [{ ...site, config: { receipt_controls: { party_name_hindi_enabled: false } } }],
+      trips: [trip],
+    });
+    await renderBooking("receipts", "owner");
+    await waitFor(() => expect(getByLabelText("Receiver name in English")).not.toBeNull());
+    expect(screen.queryByLabelText("Sender name in Hindi")).toBeNull();
+    expect(screen.queryByLabelText("Receiver name in Hindi")).toBeNull();
   });
 
   it("reloads booking receipt controls and hides saved addresses and phone on older receipts", async () => {
@@ -1236,7 +1521,25 @@ describe("simple booking workflow", () => {
       setInput("Goods and description row 1", "Cement");
       setInput("Quantity row 1", "4");
     });
-    await clickButton("Save receipt");
+    const scrollIntoView = jest.fn();
+    const scrollDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+    const widthDescriptor = Object.getOwnPropertyDescriptor(window, "innerWidth");
+    let scrolledElement;
+    window.innerWidth = 390;
+    HTMLElement.prototype.scrollIntoView = function scrollIntoViewOnMobile(...args) {
+      scrolledElement = this;
+      return scrollIntoView(...args);
+    };
+    try {
+      await clickButton("Save receipt");
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
+      expect(scrolledElement).toBe(screen.getByText("Check the receiver before saving").closest("section"));
+    } finally {
+      if (scrollDescriptor) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", scrollDescriptor);
+      else delete HTMLElement.prototype.scrollIntoView;
+      if (widthDescriptor) Object.defineProperty(window, "innerWidth", widthDescriptor);
+      else delete window.innerWidth;
+    }
 
     expect(screen.getByText("Check the receiver before saving")).not.toBeNull();
     expect(screen.getByText("Same receiver: Suresh")).not.toBeNull();

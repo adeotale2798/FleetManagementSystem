@@ -83,6 +83,31 @@ describe("simple booking workflow", () => {
     expect(receiver.title).toBe("Kasva General");
   });
 
+  it("uses the selected site's verified word and phrase dictionary in ledger names", async () => {
+    const siteWithDictionary = {
+      ...site,
+      config: {
+        hindi_dictionary: [
+          { english: "Traders", hindi: "व्यापारी" },
+          { english: "Kasva Traders", hindi: "कस्वा ट्रेडिंग कंपनी" },
+        ],
+      },
+    };
+    const row = createLedgerRow({
+      sender_name: "Kasva Traders",
+      receiver_name: "Patil Traders",
+    });
+    mockBookingApi({ sites: [siteWithDictionary], trips: [trip], ledgerRows: [row] });
+    await renderBooking("ledger");
+
+    const table = await screen.findByRole("table", { name: "Selected ledger totals" });
+    await waitFor(() => expect(table.querySelector("tbody tr")).not.toBeNull());
+    expect(table.querySelector('[data-ledger-column="sender"]').textContent)
+      .toBe("कस्वा ट्रेडिंग कंपनी");
+    expect(table.querySelector('[data-ledger-column="receiver"]').textContent)
+      .toBe("पाटिल व्यापारी");
+  });
+
   it("lets an owner switch ledger party names to English for screen, print, and export", async () => {
     const row = createLedgerRow({
       sender_name: "Deepak Jadhav",
@@ -807,7 +832,7 @@ describe("simple booking workflow", () => {
     await renderBooking("ledger", "owner");
     await waitFor(() => expect(resolveLedger).toBeDefined());
     expect(screen.queryByRole("region", { name: "Selected trip payment summary" })).toBeNull();
-    expect(screen.getByRole("status").textContent).toContain("Loading complete trip totals");
+    expect(screen.getByText("Loading complete trip totals…")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Complete trip ledger/ }).disabled).toBe(true);
 
     await act(async () => {

@@ -1,4 +1,4 @@
-# Fleet Manager v1.25.1
+# Fleet Manager v1.42.0
 
 Transport office software for one or many logistics businesses.
 
@@ -9,7 +9,7 @@ Transport office software for one or many logistics businesses.
 - Only the business owner can mark an LR as paid or complete a trip ledger. Completion records any outstanding Bhada as a payment and locks receipt, ledger, and payment changes for that trip.
 - **Platform owner** issues licences, suspends businesses, resets owner passwords, and turns modules on/off per business; platform access does not grant business-owner access.
 
-Current application version: **v1.18.1**. See [VERSION.md](VERSION.md) for the release policy and changelog.
+Current application version: **v1.42.0**. See [VERSION.md](VERSION.md) for the release policy and changelog.
 
 ## Project guide
 
@@ -357,6 +357,41 @@ pytest -q tests/test_authorization.py tests/test_financial_separation_units.py
 An opt-in end-to-end acceptance test is available at `backend/tests/test_site_ops_workflow.py`. It creates a site, manager, trip, two LRs, edits trip/LR values, records payments and trip expenses, exports/imports/reconciles the ledger, and checks the owner booking board. It creates persistent records and deactivates the test site/manager afterward; run it only against a disposable test tenant/API. Set `FMS_SITE_OPS_E2E_ALLOW_WRITES=1`, `FMS_SITE_OPS_E2E_BASE_URL`, `FMS_SITE_OPS_E2E_OWNER_USERNAME`, and `FMS_SITE_OPS_E2E_OWNER_PASSWORD` in the test process. It skips by default.
 
 Build the frontend with `cd frontend && npm run build`. Existing API integration tests require a running, explicitly configured API and may create tenants or mutate trip data; inspect their fixtures and target before invoking. Never point them at production.
+
+---
+
+## 14. Backup and isolated restore drill
+
+Fleet Manager's business data spans the primary tenant database, every licensed tenant database, and the `<DB_NAME>_platform` database. Logos and other uploaded files are stored separately under `FMS_UPLOADS_DIR` (default: `backend/data/uploads`). A usable recovery set must contain **both** the MongoDB databases and the complete upload directory from the same maintenance window. Do not back up only the currently selected tenant.
+
+1. Schedule a maintenance window and stop or pause application writes while taking the backup and copying uploads. This keeps database references and files aligned. For deployments that cannot pause writes, use a coordinated, documented storage/database snapshot procedure instead.
+2. Set `MONGO_URL` in the backup process from the deployment's protected secret source; do not put credentials in command history or commit them. From PowerShell, create a dated backup directory and dump all databases visible to this credential (do not pass `--db`):
+
+   ```powershell
+   $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+   $backupRoot = "D:\FleetBackups\$stamp"
+   New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null
+   mongodump --uri="$env:MONGO_URL" --archive="$backupRoot\mongodb.archive.gz" --gzip
+   if ($LASTEXITCODE -ne 0) { throw "mongodump failed; backup is incomplete." }
+   $uploads = if ($env:FMS_UPLOADS_DIR) { $env:FMS_UPLOADS_DIR } else { "D:\FleetManagementSystem\backend\data\uploads" }
+   Copy-Item -LiteralPath $uploads -Destination "$backupRoot\uploads" -Recurse
+   ```
+
+   If the configured upload directory is not the example path, verify `$env:FMS_UPLOADS_DIR` points at the actual persistent upload volume before copying. Confirm the Mongo archive and upload tree exist and are non-empty where expected. Encrypt the completed backup, restrict access, transfer it off-host, and apply the organization's retention policy.
+3. Perform restore drills only against a **separate, isolated, empty staging MongoDB instance** with staging credentials and a dedicated temporary uploads directory. Set `STAGING_MONGO_URL` and `STAGING_UPLOADS_DIR` from protected sources, then restore without `--drop`:
+
+   ```powershell
+   mongorestore --uri="$env:STAGING_MONGO_URL" --archive="D:\FleetBackups\YYYYMMDD-HHMMSS\mongodb.archive.gz" --gzip
+   if ($LASTEXITCODE -ne 0) { throw "mongorestore failed; staging restore is incomplete." }
+   New-Item -ItemType Directory -Path $env:STAGING_UPLOADS_DIR -Force | Out-Null
+   Get-ChildItem -LiteralPath "D:\FleetBackups\YYYYMMDD-HHMMSS\uploads" -Force |
+     ForEach-Object {
+       Copy-Item -LiteralPath $_.FullName -Destination $env:STAGING_UPLOADS_DIR -Recurse -Force
+     }
+   ```
+
+   Keep the restored database names and staging `DB_NAME` configuration aligned with the archived environment. Verify the expected platform and tenant databases, application login, representative trip/receipt records, and uploaded logos/documents while the app is pointed only at staging. Record the drill date, backup identifier, checks, duration, and outcome.
+4. Never aim a restore command at production, use `--drop` on a production target, or overwrite a non-empty database as part of a drill. A production recovery requires an explicitly approved incident procedure, a verified target, and a known-good backup. This runbook documents the procedure; it does not mean a backup or restore has been performed.
 
 ---
 

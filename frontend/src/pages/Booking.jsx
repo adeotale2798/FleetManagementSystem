@@ -18,6 +18,14 @@ import BookingAudit from "./BookingAudit";
 import BookingFinance from "./BookingFinance";
 
 const field = "fld w-full";
+const uniquePartyNames = (names) => names.reduce((result, name) => {
+  const normalized = String(name || "").trim().replace(/\s+/g, " ").toLocaleLowerCase();
+  if (normalized && !result.some((existing) =>
+    existing.trim().replace(/\s+/g, " ").toLocaleLowerCase() === normalized)) {
+    result.push(String(name).trim().replace(/\s+/g, " "));
+  }
+  return result;
+}, []);
 const DEFAULT_LEDGER_COLUMN_KEYS = [
   "date", "receipt", "sender", "receiver", "goods", "quantity", "bhada", "hamali",
   "receiptFee", "enteredBy", "amountPaid",
@@ -606,6 +614,7 @@ function ReceiptPrint({ receipt, trip, site, branding, showCharges, controls, ac
         showCharges={showCharges}
         language={hindi ? "hindi" : "english"}
         printSize={printSize}
+        partyNameDictionary={site?.config?.hindi_dictionary || []}
         showSenderAddress={controls.sender_address_enabled}
         showReceiverAddress={controls.receiver_address_enabled}
         showReceiverPhone={controls.receiver_phone_enabled}
@@ -617,8 +626,8 @@ function ReceiptPrint({ receipt, trip, site, branding, showCharges, controls, ac
 function ReceiptForm({
   trip, receipt, canEditFinance, addressSuggestions, convertHindi, receiptFee,
   goodsSuggestions, hindiDictionary, transportDictionaryOverrides,
-  senderAddressEnabled, receiverAddressEnabled, receiverPhoneEnabled, previousReceipts,
-  draftScope, language, onCancel, onSaved,
+  senderAddressEnabled, receiverAddressEnabled, receiverPhoneEnabled, partyNameHindiEnabled,
+  previousReceipts, draftScope, language, onCancel, onSaved, onPartyDictionaryUpdated,
 }) {
   const t = (english, hindi) => language === "hi" ? hindi : english;
   const chargesLocked = Boolean(receipt?.amount_paid || receipt?.booking_ledger_paid);
@@ -628,10 +637,12 @@ function ReceiptForm({
   const [form, setForm] = useState(() => receipt ? {
     receipt_date: receipt.receipt_date || receipt.operating_date || trip.operating_date,
     sender_name: receipt.sender_name || "",
-    sender_name_hindi_verified: receipt.sender_name_hindi_verified || "",
+    sender_name_hindi_verified: receipt.sender_name_hindi_verified
+      || partyName(receipt.sender_name, "", "hi", hindiDictionary),
     sender_address: receipt.sender_address || "",
     receiver_name: receipt.receiver_name || "",
-    receiver_name_hindi_verified: receipt.receiver_name_hindi_verified || "",
+    receiver_name_hindi_verified: receipt.receiver_name_hindi_verified
+      || partyName(receipt.receiver_name, "", "hi", hindiDictionary),
     receiver_address: receipt.receiver_address || "", receiver_phone: receipt.receiver_phone || "",
     goods_rows: getGoodsRows(receipt).map((line) => ({
       ...line,
@@ -649,24 +660,33 @@ function ReceiptForm({
     goods_rows: blankGoods(), rent: "", hamali: "",
   });
   const [error, setError] = useState("");
+  const [saveOutcome, setSaveOutcome] = useState("");
   const [activeGoodsRow, setActiveGoodsRow] = useState(-1);
   const [activeGoodsSuggestion, setActiveGoodsSuggestion] = useState(-1);
   const [receiverMatch, setReceiverMatch] = useState(null);
+  const receiverMatchSection = useRef(null);
   const [saving, setSaving] = useState(false);
+  const [uncertainSave, setUncertainSave] = useState(null);
   const savingRef = useRef(false);
   const [saveKey] = useState(keyForRequest);
   const senderNameInput = useRef(null);
+  const receiverNameInput = useRef(null);
   const [sitePartyNames, setSitePartyNames] = useState({ senders: [], receivers: [] });
+  const [sitePartyNamesHaveMore, setSitePartyNamesHaveMore] = useState({
+    senders: false, receivers: false,
+  });
   const [activePartyField, setActivePartyField] = useState("");
   const [partySuggestionsError, setPartySuggestionsError] = useState("");
-  const senderNames = [...new Set([
+  const senderQuery = form.sender_name.trim().toLocaleLowerCase();
+  const receiverQuery = form.receiver_name.trim().toLocaleLowerCase();
+  const senderNames = uniquePartyNames([
     ...previousReceipts.map((item) => item.sender_name),
     ...sitePartyNames.senders.map((item) => item.name),
-  ].filter(Boolean))];
+  ].filter((name) => name && (!senderQuery || name.toLocaleLowerCase().startsWith(senderQuery))));
   const receiverOptions = [...previousReceipts.map((item) => ({
     name: item.receiver_name, phone: item.receiver_phone || "",
   })), ...sitePartyNames.receivers].reduce((options, item) => {
-    if (!item.name) return options;
+    if (!item.name || (receiverQuery && !item.name.toLocaleLowerCase().startsWith(receiverQuery))) return options;
     const existing = options.find((option) =>
       option.name.toLocaleLowerCase() === item.name.toLocaleLowerCase());
     if (existing) {
@@ -689,10 +709,19 @@ function ReceiptForm({
         });
         if (!current) return;
         const data = response.data || {};
-        setSitePartyNames((existing) => ({
-          senders: [...existing.senders, ...(Array.isArray(data.senders) ? data.senders : [])],
-          receivers: [...existing.receivers, ...(Array.isArray(data.receivers) ? data.receivers : [])],
-        }));
+        setSitePartyNames({
+          senders: uniquePartyNames([
+            ...(Array.isArray(data.senders) ? data.senders.map((item) => item.name) : []),
+          ]).map((name) => ({ name })),
+          receivers: [...(Array.isArray(data.receivers) ? data.receivers : [])]
+            .filter((item, index, rows) => rows.findIndex((candidate) =>
+              candidate.name?.trim().replace(/\s+/g, " ").toLocaleLowerCase()
+                === item.name?.trim().replace(/\s+/g, " ").toLocaleLowerCase()) === index),
+        });
+        setSitePartyNamesHaveMore({
+          senders: Boolean(data.has_more?.senders),
+          receivers: Boolean(data.has_more?.receivers),
+        });
         setPartySuggestionsError("");
       } catch (requestError) {
         if (current) setPartySuggestionsError(errMsg(requestError));
@@ -704,6 +733,10 @@ function ReceiptForm({
     };
   }, [activePartyField, form.receiver_name, form.sender_name, trip.site_id]);
   useEffect(() => {
+    if (!receiverMatch) return;
+    receiverMatchSection.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+  }, [receiverMatch]);
+  useEffect(() => {
     if (activeGoodsRow < 0 || activeGoodsSuggestion < 0) return;
     document.getElementById(`goods-suggestions-${activeGoodsRow + 1}-option-${activeGoodsSuggestion}`)
       ?.scrollIntoView?.({ block: "nearest" });
@@ -714,6 +747,10 @@ function ReceiptForm({
     input?.scrollIntoView?.({ behavior: "smooth", block: "center" });
     input?.focus({ preventScroll: true });
   }, [receipt?.id]);
+  useEffect(() => {
+    if (receipt || draftRecovery.draft || draftRecovery.error) return;
+    receiverNameInput.current?.focus({ preventScroll: true });
+  }, [draftRecovery.draft, draftRecovery.error, receipt?.id, trip.id]);
   useEffect(() => {
     if (receipt || draftRecovery.draft || draftRecovery.error) return;
     const hasContent = Boolean(
@@ -738,6 +775,12 @@ function ReceiptForm({
     }
   }, [draftKey, draftRecovery.draft, form, language, receipt, trip.operating_date]);
   const patch = (values) => setForm((current) => ({ ...current, ...values }));
+  const updatePartyName = (nameKey, hindiKey, value, extra = {}) => setForm((current) => ({
+    ...current,
+    ...extra,
+    [nameKey]: value,
+    [hindiKey]: partyName(value, "", "hi", hindiDictionary),
+  }));
   const discardDraft = () => {
     try {
       window.localStorage.removeItem(draftKey);
@@ -762,44 +805,53 @@ function ReceiptForm({
     printAfterSave.current = true;
     void save(event, true);
   };
-  const save = async (event, printAfter = false, matchChoice = null) => {
+  const save = async (event, printAfter = false, matchChoice = null, requestToRetry = null) => {
     event?.preventDefault();
     if (savingRef.current) return;
     setError("");
+    let request = requestToRetry;
     const goods = form.goods_rows.filter((line) => line.type.trim() && Number(line.quantity) > 0);
-    if (!form.receiver_name.trim() || !goods.length) {
-      setError(t("Enter the receiver and at least one goods row.", "प्राप्तकर्ता का नाम और कम से कम एक सामान भरें।"));
-      printAfterSave.current = false;
-      return;
-    }
-    if (window.navigator.onLine === false) {
-      setError(t("Offline — receipt not saved. Keep this form open and tap Save when you’re back online.",
-        "इंटरनेट नहीं है — रसीद सेव नहीं हुई। यह फ़ॉर्म खुला रखें और इंटरनेट आने पर सेव करें।"));
-      printAfterSave.current = false;
-      return;
-    }
-    if ((form.sender_name_hindi_verified && !isHindi(form.sender_name_hindi_verified))
-      || (form.receiver_name_hindi_verified && !isHindi(form.receiver_name_hindi_verified))) {
-      setError(t("Enter party names in Devanagari script in the Hindi name fields.",
-        "हिंदी नाम वाले फ़ील्ड में नाम देवनागरी लिपि में लिखें।"));
-      printAfterSave.current = false;
-      return;
-    }
-    if (goods.some((line) => !Number.isInteger(Number(line.quantity)) || Number(line.quantity) <= 0)) {
-      setError(t("Goods quantity must be a whole number greater than zero.",
-        "सामान की मात्रा शून्य से बड़ी पूरी संख्या होनी चाहिए।"));
-      printAfterSave.current = false;
-      return;
-    }
-    if (form.receiver_phone && form.receiver_phone.length !== 10) {
-      setError(t("Receiver phone must contain exactly 10 digits.",
-        "प्राप्तकर्ता का फ़ोन नंबर ठीक 10 अंकों का होना चाहिए।"));
-      printAfterSave.current = false;
-      return;
+    if (!request) {
+      if (!form.receiver_name.trim() || !goods.length) {
+        setSaveOutcome("not-sent");
+        setError(t("Enter the receiver and at least one goods row.", "प्राप्तकर्ता का नाम और कम से कम एक सामान भरें।"));
+        printAfterSave.current = false;
+        return;
+      }
+      if (window.navigator.onLine === false) {
+        setSaveOutcome("not-sent");
+        setError(t("Offline — receipt not saved. Keep this form open and tap Save when you’re back online.",
+          "इंटरनेट नहीं है — रसीद सेव नहीं हुई। यह फ़ॉर्म खुला रखें और इंटरनेट आने पर सेव करें।"));
+        printAfterSave.current = false;
+        return;
+      }
+      if ((form.sender_name_hindi_verified && !isHindi(form.sender_name_hindi_verified))
+        || (form.receiver_name_hindi_verified && !isHindi(form.receiver_name_hindi_verified))) {
+        setSaveOutcome("not-sent");
+        setError(t("Enter party names in Devanagari script in the Hindi name fields.",
+          "हिंदी नाम वाले फ़ील्ड में नाम देवनागरी लिपि में लिखें।"));
+        printAfterSave.current = false;
+        return;
+      }
+      if (goods.some((line) => !Number.isInteger(Number(line.quantity)) || Number(line.quantity) <= 0)) {
+        setSaveOutcome("not-sent");
+        setError(t("Goods quantity must be a whole number greater than zero.",
+          "सामान की मात्रा शून्य से बड़ी पूरी संख्या होनी चाहिए।"));
+        printAfterSave.current = false;
+        return;
+      }
+      if (form.receiver_phone && form.receiver_phone.length !== 10) {
+        setSaveOutcome("not-sent");
+        setError(t("Receiver phone must contain exactly 10 digits.",
+          "प्राप्तकर्ता का फ़ोन नंबर ठीक 10 अंकों का होना चाहिए।"));
+        printAfterSave.current = false;
+        return;
+      }
     }
     savingRef.current = true;
     setSaving(true);
-    const body = {
+    setSaveOutcome("saving");
+    const body = request?.body || {
       receipt_date: receipt ? form.receipt_date : trip.operating_date,
       sender_name: form.sender_name.trim(),
       sender_name_hindi_verified: form.sender_name_hindi_verified.trim(),
@@ -831,31 +883,70 @@ function ReceiptForm({
         ...(matchChoice.identityId ? { receiver_identity_id: matchChoice.identityId } : {}),
       } : {}),
     };
+    request ||= {
+      method: receipt ? "patch" : "post",
+      url: receipt
+        ? `/sites/${trip.site_id}/trips/${trip.id}/lrs/${receipt.id}`
+        : `/sites/${trip.site_id}/trips/${trip.id}/lrs`,
+      body: receipt ? {
+        ...body, ...(!canEditFinance ? { rent: undefined, hamali: undefined } : {}),
+        expected_updated_at: receipt.updated_at,
+        ...(canEditFinance ? { idempotency_key: keyForRequest() } : {}),
+      } : { ...body, idempotency_key: saveKey },
+      printAfter,
+    };
     try {
-      const response = receipt
-        ? await api.patch(`/sites/${trip.site_id}/trips/${trip.id}/lrs/${receipt.id}`, {
-          ...body, ...(!canEditFinance ? { rent: undefined, hamali: undefined } : {}),
-          expected_updated_at: receipt.updated_at,
-          ...(canEditFinance ? { idempotency_key: keyForRequest() } : {}),
-        })
-        : await api.post(`/sites/${trip.site_id}/trips/${trip.id}/lrs`, {
-          ...body, idempotency_key: saveKey,
-        });
+      const response = await api[request.method](request.url, request.body);
+      let dictionaryWarning = "";
+      const translations = partyNameHindiEnabled ? [
+        { english: body.sender_name, hindi: body.sender_name_hindi_verified },
+        { english: body.receiver_name, hindi: body.receiver_name_hindi_verified },
+      ].filter((entry) => entry.english && entry.hindi
+        && partyName(entry.english, "", "hi", hindiDictionary) !== entry.hindi)
+        .filter((entry, index, entries) => entries.findIndex((candidate) =>
+          candidate.english.trim().replace(/\s+/g, " ").toLocaleLowerCase()
+            === entry.english.trim().replace(/\s+/g, " ").toLocaleLowerCase()) === index) : [];
+      if (translations.length) {
+        try {
+          const dictionaryResponse = await api.post(
+            `/sites/${trip.site_id}/party-name-dictionary`, { entries: translations },
+          );
+          onPartyDictionaryUpdated?.(dictionaryResponse.data.hindi_dictionary || []);
+        } catch (dictionaryError) {
+          dictionaryWarning = errMsg(dictionaryError);
+        }
+      }
+      setUncertainSave(null);
+      setSaveOutcome("saved");
       if (!receipt) discardDraft();
       setReceiverMatch(null);
-      await onSaved(response.data, printAfter);
+      await onSaved(response.data, request.printAfter, dictionaryWarning);
       printAfterSave.current = false;
     } catch (requestError) {
       const detail = requestError?.response?.data?.detail;
       if (detail?.code === "receiver_match_confirmation_required") {
+        setUncertainSave(null);
+        setSaveOutcome("not-sent");
         setReceiverMatch(detail);
         setError(detail.message || t("Choose whether this is the same receiver or a different receiver.",
           "बताएँ कि यह वही प्राप्तकर्ता है या कोई दूसरा।"));
+      } else if (!requestError?.response || requestError.response.status >= 500) {
+        setUncertainSave(request);
+        setSaveOutcome("uncertain");
+        printAfterSave.current = Boolean(request.printAfter);
+        setError(t(
+          "The request may have reached the server, but its response was not confirmed. Your details are locked; retry the exact same save safely.",
+          "अनुरोध सर्वर तक पहुँचा हो सकता है, लेकिन पुष्टि नहीं मिली। विवरण लॉक हैं; उसी सेव को सुरक्षित रूप से फिर से करें।",
+        ));
       } else if (window.navigator.onLine === false) {
+        setUncertainSave(null);
+        setSaveOutcome("not-sent");
         printAfterSave.current = false;
         setError(t("Offline — receipt not saved. Keep this form open and tap Save when you’re back online.",
           "इंटरनेट नहीं है — रसीद सेव नहीं हुई। यह फ़ॉर्म खुला रखें और इंटरनेट आने पर सेव करें।"));
       } else {
+        setUncertainSave(null);
+        setSaveOutcome("not-sent");
         printAfterSave.current = false;
         setError(errMsg(requestError));
       }
@@ -904,7 +995,19 @@ function ReceiptForm({
           : draftStatus}
       </p>}
       {error && <div role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-sm font-medium text-red-800">{error}</div>}
-      {receiverMatch && <section className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4">
+      {saveOutcome === "not-sent" && <p role="status" className="mb-3 rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-950">
+        {t("Not saved — this request was not accepted. Your local draft is still available.",
+          "सेव नहीं हुई — अनुरोध स्वीकार नहीं हुआ। डिवाइस में अधूरी रसीद अभी उपलब्ध है।")}
+      </p>}
+      {saveOutcome === "uncertain" && <p role="status" className="mb-3 rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-950">
+        {t("Save unconfirmed — it may already exist on the server. Retry only with the button below.",
+          "सेव की पुष्टि नहीं हुई — रसीद सर्वर पर हो सकती है। नीचे दिए बटन से ही फिर प्रयास करें।")}
+      </p>}
+      {saveOutcome === "saved" && receipt && <p role="status" className="mb-3 rounded-lg bg-green-50 p-3 text-sm font-semibold text-green-900">
+        {t("Saved on the server.", "सर्वर पर सेव हो गया।")}
+      </p>}
+      {receiverMatch && <section ref={receiverMatchSection} tabIndex={-1}
+        className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4">
         <h3 className="font-bold">{t("Check the receiver before saving", "सेव करने से पहले प्राप्तकर्ता जाँचें")}</h3>
         <p className="mt-1 text-sm">{receiverMatch.message}</p>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -921,15 +1024,23 @@ function ReceiptForm({
         </div>
       </section>}
       <form onSubmit={(event) => save(event)} className="space-y-4">
+        <fieldset disabled={saving || Boolean(uncertainSave)} className="min-w-0 space-y-4">
         <div className="grid gap-3 md:grid-cols-3">
           <label><span className="lbl flex items-center gap-2"><UserRound size={16} aria-hidden="true" />{t("Sender (optional)", "भेजने वाला (ज़रूरी नहीं)")}</span><input className={field} aria-label={t("Sender name in English", "भेजने वाले का नाम")}
             ref={senderNameInput}
             list={senderNames.length ? "previous-sender-options" : undefined}
             value={form.sender_name} onFocus={() => setActivePartyField("sender")}
-            onChange={(event) => patch({ sender_name: event.target.value })} />
+            onChange={(event) => updatePartyName(
+              "sender_name", "sender_name_hindi_verified", event.target.value,
+            )} />
             {senderNames.length > 0 && <datalist id="previous-sender-options">
               {senderNames.map((name) => <option key={name} value={name} />)}
-            </datalist>}</label>
+            </datalist>}
+              {sitePartyNamesHaveMore.senders && <span role="status" className="text-xs text-muted">
+                {t("Showing the 50 most recent matches. Type more letters to narrow the search.",
+                  "50 हाल के नाम दिख रहे हैं। खोज सीमित करने के लिए कुछ और अक्षर लिखें।")}
+              </span>}
+          </label>
           <label><span className="lbl">{t("Receipt date", "रसीद की तारीख")}</span><input className={field} type="date" required
             disabled={!receipt} value={receipt ? form.receipt_date : trip.operating_date}
             onChange={(event) => patch({ receipt_date: event.target.value })} /></label>
@@ -941,15 +1052,14 @@ function ReceiptForm({
         <div className={`grid gap-3 ${receiverPhoneEnabled ? "md:grid-cols-2" : ""}`}>
           <label><span className="lbl flex items-center gap-2"><UserRound size={16} aria-hidden="true" />{t("Receiver *", "प्राप्तकर्ता *")}</span><input className={field} required aria-label={t("Receiver name in English", "प्राप्तकर्ता का नाम")}
             list={receiverNames.length ? "previous-receiver-options" : undefined}
+            ref={receiverNameInput}
             onFocus={() => setActivePartyField("receiver")}
             value={form.receiver_name} onChange={(event) => {
               const value = event.target.value;
               const savedReceiver = receiverOptions.find((item) =>
                 item.name.toLocaleLowerCase() === value.trim().toLocaleLowerCase());
-              patch({
-                receiver_name: value,
-                ...(savedReceiver ? { receiver_phone: savedReceiver.phone || "" } : {}),
-              });
+              updatePartyName("receiver_name", "receiver_name_hindi_verified", value,
+                savedReceiver ? { receiver_phone: savedReceiver.phone || "" } : {});
             }} />
             {receiverNames.length > 0 && <datalist id="previous-receiver-options">
               {receiverNames.map((name) =>
@@ -959,6 +1069,10 @@ function ReceiptForm({
               {t("Saved party names could not be loaded: ", "पहले सेव किए गए नाम लोड नहीं हुए: ")}
               {partySuggestionsError}
             </span>}
+            {sitePartyNamesHaveMore.receivers && <span role="status" className="mt-1 block text-xs text-muted">
+              {t("Showing the 50 most recent matches. Type more letters to narrow the search.",
+                "50 हाल के नाम दिख रहे हैं। खोज सीमित करने के लिए कुछ और अक्षर लिखें।")}
+            </span>}
           </label>
           {receiverPhoneEnabled && <label>
             <span className="lbl flex items-center gap-2"><Phone size={16} aria-hidden="true" />{t("Receiver phone (10 digits, optional)", "प्राप्तकर्ता का फ़ोन (10 अंक, ज़रूरी नहीं)")}</span>
@@ -967,7 +1081,7 @@ function ReceiptForm({
               onChange={(event) => patch({ receiver_phone: event.target.value.replace(/\D/g, "").slice(0, 10) })} />
           </label>}
         </div>
-        <div className="grid gap-3 md:grid-cols-2">
+        {partyNameHindiEnabled && <div className="grid gap-3 md:grid-cols-2">
           <label>
             <span className="lbl">{t("Sender name in Hindi (optional)", "भेजने वाले का नाम हिंदी में (ज़रूरी नहीं)")}</span>
             <input className={field} lang="hi" aria-label={t("Sender name in Hindi", "भेजने वाले का नाम हिंदी में")}
@@ -980,7 +1094,7 @@ function ReceiptForm({
               value={form.receiver_name_hindi_verified}
               onChange={(event) => patch({ receiver_name_hindi_verified: event.target.value })} />
           </label>
-        </div>
+        </div>}
         {senderAddressEnabled && <label className="block"><span className="lbl flex items-center gap-2"><MapPin size={16} aria-hidden="true" />{t("Sender address (optional)", "भेजने वाले का पता (ज़रूरी नहीं)")}</span><input className={field} aria-label={t("Sender address (optional)", "भेजने वाले का पता (ज़रूरी नहीं)")} list="sender-address-options"
           value={form.sender_address} onChange={(event) => patch({ sender_address: event.target.value })} />
           <datalist id="sender-address-options">{addressSuggestions.sender.map((address) =>
@@ -1127,25 +1241,40 @@ function ReceiptForm({
             <IconLabel icon={Receipt}>{t("Total amount", "कुल रकम")}</IconLabel><span>{total == null ? "" : money(total)}</span>
           </p>
         </section>
+        </fieldset>
+        {saving && <p role="status" aria-live="polite" className="text-sm font-semibold text-brand-700">
+          {t("Saving receipt…", "रसीद सेव हो रही है…")}
+        </p>}
+        {uncertainSave && <div role="status" aria-live="polite" className="rounded-lg border border-amber-400 bg-amber-50 p-3 text-sm text-amber-950">
+          <p>{t("The server response was not confirmed. The saved receipt may already exist.",
+            "सर्वर की पुष्टि नहीं मिली। रसीद शायद पहले ही सेव हो चुकी है।")}</p>
+          <p className="mt-1">{t("Retry sends the exact same request key and details to avoid creating a duplicate.",
+            "फिर से करने पर डुप्लिकेट रोकने के लिए वही अनुरोध कुंजी और विवरण भेजे जाएँगे।")}</p>
+        </div>}
         <div className="receipt-form-actions sticky bottom-0 z-10 -mx-4 flex flex-col gap-2 border-t border-line bg-white/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_20px_rgba(16,24,40,0.08)] backdrop-blur sm:static sm:mx-0 sm:flex-row sm:gap-3 sm:border-0 sm:bg-transparent sm:p-0 sm:pt-0 sm:shadow-none sm:backdrop-blur-none">
-          <Btn type="submit" disabled={saving}
-            aria-label={saving ? t("Saving…", "सेव हो रहा है…")
+          <Btn type={uncertainSave ? "button" : "submit"}
+            onClick={uncertainSave ? () => save(null, false, null, uncertainSave) : undefined}
+            disabled={saving}
+            aria-label={uncertainSave ? t("Retry save", "फिर से सेव करें") : saving ? t("Saving…", "सेव हो रहा है…")
               : receipt ? t("Save changes", "बदलाव सेव करें") : t("Save receipt", "रसीद सेव करें")}
             className="receipt-save-action min-h-12 flex-1 text-base">
             <Check size={17} />
             <span className="receipt-action-label-full">
-              {saving ? t("Saving…", "सेव हो रहा है…") : receipt ? t("Save changes", "बदलाव सेव करें") : t("Save receipt", "रसीद सेव करें")}
+              {uncertainSave ? t("Retry same save", "उसी सेव को फिर करें")
+                : saving ? t("Saving…", "सेव हो रहा है…")
+                  : receipt ? t("Save changes", "बदलाव सेव करें") : t("Save receipt", "रसीद सेव करें")}
             </span>
-            <span className="receipt-action-label-mobile">{saving ? t("Saving", "सेव…") : t("Save", "सेव")}</span>
+            <span className="receipt-action-label-mobile">{uncertainSave
+              ? t("Retry", "फिर करें") : saving ? t("Saving", "सेव…") : t("Save", "सेव")}</span>
           </Btn>
-          <button type="button" disabled={saving} onClick={saveAndPrint}
+          <button type="button" disabled={saving || Boolean(uncertainSave)} onClick={saveAndPrint}
             aria-label={t("Print paper (saves receipt first)", "प्रिंट निकालें (पहले रसीद सेव होगी)")}
             className="receipt-print-action btn-s min-h-12 flex-1 text-base">
             <Printer size={18} />
             <span className="receipt-action-label-full">{t("Print paper (saves receipt first)", "प्रिंट निकालें (पहले रसीद सेव होगी)")}</span>
             <span className="receipt-action-label-mobile">{t("Print", "प्रिंट")}</span>
           </button>
-          <button type="button" disabled={saving} onClick={onCancel}
+          <button type="button" disabled={saving || Boolean(uncertainSave)} onClick={onCancel}
             aria-label={receipt ? t("Cancel editing", "बदलाव रद्द करें") : t("Cancel receipt", "रसीद रद्द करें")}
             className="receipt-cancel-action btn-s min-h-12 flex-1 text-base">
             <X size={17} />
@@ -1181,11 +1310,17 @@ export default function Booking({ user }) {
   const currentSiteId = useRef(siteId);
   currentSiteId.current = siteId;
   const [siteError, setSiteError] = useState("");
+  const [connectionStatus, setConnectionStatus] = useState(() =>
+    window.navigator.onLine === false ? "offline" : "checking");
   const [selectedDate, setSelectedDate] = useState(todayISO);
   const [todaySummary, setTodaySummary] = useState({
-    key: "", receiptCount: 0, outstanding: 0, loading: false, error: "",
+    key: "", receiptCount: 0, outstanding: 0, receipts: [], loading: false, error: "",
   });
   const [todaySummaryRetry, setTodaySummaryRetry] = useState(0);
+  const [ownerAttention, setOwnerAttention] = useState({
+    key: "", financeRows: [], openTrips: [], loading: false, error: "",
+  });
+  const [ownerAttentionRetry, setOwnerAttentionRetry] = useState(0);
   const [tripSearch, setTripSearch] = useState("");
   const [tripStatusFilter, setTripStatusFilter] = useState("all");
   const [trips, setTrips] = useState([]);
@@ -1213,6 +1348,7 @@ export default function Booking({ user }) {
   const [printMode, setPrintMode] = useState(null);
   const thermalPrintPageStyle = useRef(null);
   const [success, setSuccess] = useState("");
+  const [handoverReviewOpen, setHandoverReviewOpen] = useState(false);
   const [ledgerRows, setLedgerRows] = useState([]);
   const [ledgerTrips, setLedgerTrips] = useState([]);
   const [ledgerTripId, setLedgerTripId] = useState("");
@@ -1249,6 +1385,7 @@ export default function Booking({ user }) {
   const ledgerRowCache = useRef({});
   const tripsCache = useRef(new Map());
   const todaySummaryRequest = useRef(0);
+  const ownerAttentionRequest = useRef(0);
   const receiptsCache = useRef(new Map());
   const tripsRequestVersions = useRef(new Map());
   const receiptsRequestVersions = useRef(new Map());
@@ -1257,7 +1394,38 @@ export default function Booking({ user }) {
   const ledgerTripsRequest = useRef(0);
   const activeLedgerRequest = useRef(0);
   const restoredTripId = useRef("");
+  const handledAttentionReceipt = useRef("");
   const previousPage = useRef(page);
+  useEffect(() => {
+    let active = true;
+    const checkServer = async () => {
+      if (window.navigator.onLine === false) {
+        setConnectionStatus("offline");
+        return;
+      }
+      setConnectionStatus("checking");
+      try {
+        await api.get("/health", { timeout: 10000 });
+        if (active) setConnectionStatus("connected");
+      } catch {
+        if (active) setConnectionStatus("server-unavailable");
+      }
+    };
+    const handleOffline = () => setConnectionStatus("offline");
+    const handleOnline = () => { void checkServer(); };
+    void checkServer();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "hidden") void checkServer();
+    }, 30000);
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, []);
   useEffect(() => {
     setLedgerColumnKeys(readLedgerColumnKeys(siteId));
     setLedgerColumnWidths(readLedgerColumnWidths(siteId));
@@ -1365,6 +1533,8 @@ export default function Booking({ user }) {
     };
   }, []);
   const site = sites.find((item) => item.id === siteId);
+  const partyNameDictionary = Array.isArray(site?.config?.hindi_dictionary)
+    ? site.config.hindi_dictionary : [];
   const ledgerTrip = ledgerTrips.find((trip) => trip.id === ledgerTripId);
   const ledgerSummaryKey = `${siteId}:${ledgerDate}:${ledgerTripId}`;
   const ledgerSummaryReady = Boolean(ledgerTripId) && ledgerLoadedKey === ledgerSummaryKey;
@@ -1403,6 +1573,35 @@ export default function Booking({ user }) {
   }, [trips, tripSearch, tripStatusFilter]);
   const openTodayTrips = trips.filter((trip) => trip.status === "open");
   const todaySummaryCurrent = todaySummary.key === `${siteId}:${selectedDate}`;
+  const handoverReceipts = todaySummaryCurrent ? todaySummary.receipts : [];
+  const handoverTotals = handoverReceipts.reduce((totals, receipt) => {
+    const cents = (value) => Math.round((Number(value) || 0) * 100);
+    const rent = receipt.rent == null ? null : cents(receipt.rent);
+    totals.charges += cents(receipt.total ?? (
+      (Number(receipt.rent) || 0) + (Number(receipt.hamali) || 0)
+      + (Number(receipt.receipt_fee ?? 2) || 0)
+    ));
+    totals.collected += cents(receipt.paid ?? receipt.paid_total);
+    totals.outstanding += cents(receipt.outstanding);
+    if (rent == null) totals.unpriced += 1;
+    else if (cents(receipt.outstanding) > 0) totals.unpaid += 1;
+    if (!receipt.reconciled) totals.orderChecks += 1;
+    return totals;
+  }, { charges: 0, collected: 0, outstanding: 0, unpriced: 0, unpaid: 0, orderChecks: 0 });
+  const handoverTripRows = trips.map((trip) => {
+    const receiptsForTrip = handoverReceipts.filter((receipt) => receipt.trip_id === trip.id);
+    const collectedCents = receiptsForTrip.reduce((sum, receipt) =>
+      sum + Math.round((Number(receipt.paid ?? receipt.paid_total) || 0) * 100), 0);
+    return { ...trip, handoverReceiptCount: receiptsForTrip.length, handoverCollectedCents: collectedCents };
+  });
+  const ownerAttentionCurrent = ownerAttention.key === siteId;
+  const currentDate = todayISO();
+  const attentionRows = ownerAttentionCurrent ? ownerAttention.financeRows.filter((row) => !row.voided) : [];
+  const overduePromises = attentionRows.filter((row) =>
+    Number(row.outstanding) > 0 && row.promised_date && row.promised_date < currentDate);
+  const unpricedReceipts = attentionRows.filter((row) => row.rent == null);
+  const attentionTrips = ownerAttentionCurrent
+    ? ownerAttention.openTrips.filter((trip) => trip.status === "open" && !isLedgerLocked(trip)) : [];
   const filteredReceipts = useMemo(() => {
     const query = receiptSearch.trim().toLowerCase();
     return receipts.filter((receipt) => {
@@ -1484,6 +1683,7 @@ export default function Booking({ user }) {
     ...(site?.config?.receipt_controls || {}),
     ...(globalReceiptControls || {}),
   };
+  const ownerAttentionEnabled = site?.config?.receipt_controls?.owner_attention_enabled === true;
   const receiptPrintSize = ["80mm", "58mm"].includes(receiptControls.receipt_print_size)
     ? receiptControls.receipt_print_size : "default";
   const goodsSuggestions = Array.isArray(site?.config?.goods_suggestions)
@@ -1491,6 +1691,7 @@ export default function Booking({ user }) {
   const hindiDictionary = Array.isArray(site?.config?.hindi_dictionary)
     ? site.config.hindi_dictionary : [];
   const convertHindi = receiptControls.hindi_conversion_enabled !== false;
+  const partyNameHindiEnabled = site?.config?.receipt_controls?.party_name_hindi_enabled !== false;
   const receiptFee = Number(receiptControls.receipt_fee ?? 2);
   const receiptLanguage = receiptControls.receipt_language === "english" ? "english" : "hindi";
   const senderAddressEnabled = receiptControls.sender_address_enabled !== false;
@@ -1501,8 +1702,11 @@ export default function Booking({ user }) {
     if (page === "dashboard" && previousPage.current !== "dashboard") {
       setSelectedDate(todayISO());
     }
+    if (page === "ledger" && previousPage.current === "receipts" && selectedTrip?.operating_date) {
+      setLedgerDate(selectedTrip.operating_date);
+    }
     previousPage.current = page;
-  }, [page]);
+  }, [page, selectedTrip]);
 
   const refreshTrips = useCallback(async (dateValue = selectedDate, targetSite = siteId) => {
     if (!targetSite) { setTrips([]); return; }
@@ -1638,12 +1842,12 @@ export default function Booking({ user }) {
     const requestId = ++todaySummaryRequest.current;
     const key = `${siteId}:${selectedDate}`;
     if (page !== "dashboard" || !siteId || !canFinanceRead) {
-      setTodaySummary({ key, receiptCount: 0, outstanding: null, loading: false, error: "" });
+      setTodaySummary({ key, receiptCount: 0, outstanding: null, receipts: [], loading: false, error: "" });
       return () => {
         if (todaySummaryRequest.current === requestId) todaySummaryRequest.current += 1;
       };
     }
-    setTodaySummary({ key, receiptCount: 0, outstanding: 0, loading: true, error: "" });
+    setTodaySummary({ key, receiptCount: 0, outstanding: 0, receipts: [], loading: true, error: "" });
     const loadSummary = async () => {
       try {
         const path = `/sites/${siteId}/ledger/entries`;
@@ -1664,11 +1868,13 @@ export default function Booking({ user }) {
           totalCents + Math.round(receiptOutstanding(row) * 100), 0);
         setTodaySummary({
           key, receiptCount: activeRows.length, outstanding: outstandingCents / 100,
-          loading: false, error: "",
+          receipts: activeRows, loading: false, error: "",
         });
       } catch (requestError) {
         if (requestId === todaySummaryRequest.current) {
-          setTodaySummary({ key, receiptCount: 0, outstanding: null, loading: false, error: errMsg(requestError) });
+          setTodaySummary({
+            key, receiptCount: 0, outstanding: null, receipts: [], loading: false, error: errMsg(requestError),
+          });
         }
       }
     };
@@ -1677,6 +1883,55 @@ export default function Booking({ user }) {
       if (todaySummaryRequest.current === requestId) todaySummaryRequest.current += 1;
     };
   }, [page, siteId, selectedDate, canFinanceRead, todaySummaryRetry]);
+
+  useEffect(() => {
+    const requestId = ++ownerAttentionRequest.current;
+    const key = siteId;
+    if (page !== "dashboard" || !owner || !ownerAttentionEnabled || !siteId) {
+      setOwnerAttention({ key, financeRows: [], openTrips: [], loading: false, error: "" });
+      return () => {
+        if (ownerAttentionRequest.current === requestId) ownerAttentionRequest.current += 1;
+      };
+    }
+    setOwnerAttention({ key, financeRows: [], openTrips: [], loading: true, error: "" });
+    const loadOpenTrips = async () => {
+      const path = `/sites/${siteId}/trips`;
+      const params = { status: "open", limit: 100, offset: 0 };
+      const first = await api.get(path, { params });
+      let rows = first.data.rows || [];
+      const total = Math.min(Number(first.data.total) || rows.length, 10000);
+      const offsets = [];
+      for (let offset = rows.length; offset < total; offset += 100) offsets.push(offset);
+      if (offsets.length) {
+        const pages = await Promise.all(offsets.map((offset) =>
+          api.get(path, { params: { ...params, offset } })));
+        rows = rows.concat(...pages.map((response) => response.data.rows || []));
+      }
+      return rows;
+    };
+    Promise.all([
+      api.get(`/sites/${siteId}/booking-finance`),
+      loadOpenTrips(),
+    ]).then(([financeResponse, openTrips]) => {
+      if (ownerAttentionRequest.current !== requestId) return;
+      setOwnerAttention({
+        key,
+        financeRows: financeResponse.data.rows || [],
+        openTrips,
+        loading: false,
+        error: "",
+      });
+    }).catch((requestError) => {
+      if (ownerAttentionRequest.current === requestId) {
+        setOwnerAttention({
+          key, financeRows: [], openTrips: [], loading: false, error: errMsg(requestError),
+        });
+      }
+    });
+    return () => {
+      if (ownerAttentionRequest.current === requestId) ownerAttentionRequest.current += 1;
+    };
+  }, [page, owner, ownerAttentionEnabled, siteId, ownerAttentionRetry]);
 
   useEffect(() => {
     if (!selectedTrip || page !== "receipts") return;
@@ -1697,6 +1952,50 @@ export default function Booking({ user }) {
       restoredTripId.current = "";
     });
   }, [siteId, selectedTrip, page]);
+
+  useEffect(() => {
+    const target = location.state?.bookingAttentionReceipt;
+    if (page !== "receipts" || !owner || !target?.tripId || !target?.receiptId
+      || target.siteId !== siteId || handledAttentionReceipt.current === target.receiptId) return;
+    handledAttentionReceipt.current = target.receiptId;
+    let active = true;
+    const openTargetReceipt = async () => {
+      try {
+        const tripResponse = await api.get(`/sites/${siteId}/trips/${target.tripId}`);
+        const targetTrip = tripResponse.data;
+        if (targetTrip.id !== target.tripId || targetTrip.site_id !== siteId) {
+          throw new Error("The selected receipt does not belong to this site.");
+        }
+        const path = `/sites/${siteId}/trips/${target.tripId}/lrs`;
+        const first = await api.get(path, { params: { limit: 100, offset: 0 } });
+        let rows = first.data.rows || [];
+        const total = Math.min(Number(first.data.total) || rows.length, 10000);
+        const offsets = [];
+        for (let offset = rows.length; offset < total; offset += 100) offsets.push(offset);
+        if (offsets.length) {
+          const pages = await Promise.all(offsets.map((offset) =>
+            api.get(path, { params: { limit: 100, offset } })));
+          rows = rows.concat(...pages.map((response) => response.data.rows || []));
+        }
+        const targetReceipt = rows.find((row) => row.id === target.receiptId && !row.voided);
+        if (!targetReceipt) throw new Error("The selected receipt is no longer available for editing.");
+        if (!active) return;
+        setSelectedTrip(targetTrip);
+        setSelectedDate(targetTrip.operating_date);
+        setReceipts(rows);
+        receiptsCache.current.set(`${siteId}:${targetTrip.id}`, rows);
+        setEditingReceipt(targetReceipt);
+        setReceiptFormOpen(true);
+        setTripError("");
+      } catch (requestError) {
+        if (active) setTripError(errMsg(requestError));
+      } finally {
+        if (active) navigate(location.pathname, { replace: true, state: null });
+      }
+    };
+    void openTargetReceipt();
+    return () => { active = false; };
+  }, [location.pathname, location.state, navigate, owner, page, siteId]);
 
   useEffect(() => {
     if (!printMode) return undefined;
@@ -1937,7 +2236,7 @@ export default function Booking({ user }) {
       setTripError(errMsg(requestError));
     }
   };
-  const receiptSaved = async (receipt, printAfter) => {
+  const receiptSaved = async (receipt, printAfter, dictionaryWarning = "") => {
     const creating = !editingReceipt;
     setReceiptFormOpen(creating && selectedTrip?.status === "open" && can("lrs:create"));
     setEditingReceipt(null);
@@ -1949,6 +2248,9 @@ export default function Booking({ user }) {
       });
     }
     setSuccess(`Saved ${receipt.lr_ref || "receipt"} successfully.`);
+    setTripError(dictionaryWarning
+      ? `Receipt saved, but the corrected Hindi spelling was not shared in the site dictionary: ${dictionaryWarning}`
+      : "");
     const cacheKey = `${selectedTrip.site_id}:${selectedTrip.id}`;
     receiptsRequestVersions.current.set(cacheKey, (receiptsRequestVersions.current.get(cacheKey) || 0) + 1);
     const cachedReceipts = receiptsCache.current.get(cacheKey) || receipts;
@@ -2382,9 +2684,11 @@ export default function Booking({ user }) {
     </> },
     { key: "sender", label: "Sender", printable: true,
       render: (row) => <span title={row.sender_name || ""}>
-        {partyName(row.sender_name, row.sender_name_hindi_verified, ledgerPartyNameLanguage)}
+        {partyName(row.sender_name, row.sender_name_hindi_verified, ledgerPartyNameLanguage, partyNameDictionary)}
       </span>,
-      print: (row) => partyName(row.sender_name, row.sender_name_hindi_verified, ledgerPartyNameLanguage) },
+      print: (row) => partyName(
+        row.sender_name, row.sender_name_hindi_verified, ledgerPartyNameLanguage, partyNameDictionary,
+      ) },
     { key: "senderAddress", label: "Sender address", printable: true,
       render: (row) => hindiText(row.sender_address_hindi, row.sender_address) || "—" },
     { key: "senderPhone", label: "Sender phone", printable: true, render: (row) => row.sender_phone || "—" },
@@ -2479,7 +2783,7 @@ export default function Booking({ user }) {
     column.printable && column.key !== "enteredBy");
   const receiverNameCell = (row, outputLanguage = ledgerPartyNameLanguage) => <>
     <span title={row.receiver_name || ""}>
-      {partyName(row.receiver_name, row.receiver_name_hindi_verified, outputLanguage)}
+      {partyName(row.receiver_name, row.receiver_name_hindi_verified, outputLanguage, partyNameDictionary)}
     </span>
     {sameReceiverIdentityIds.has(row.receiver_identity_id) && <span
       className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-emerald-700 text-[10px] font-bold text-emerald-800"
@@ -2491,7 +2795,8 @@ export default function Booking({ user }) {
     <p className="text-lg font-semibold">No booking site is assigned to this account.</p>
   </Card></div>;
   if ((page === "finance" || page === "audit") && !owner) return <Navigate to="/booking/dashboard" replace />;
-  if (page === "finance") return <BookingFinance user={user} />;
+  if (page === "finance") return <BookingFinance
+    user={user} initialFilter={new URLSearchParams(location.search).get("filter")} />;
   if (page === "audit") return <BookingAudit user={user} />;
 
   return (
@@ -2501,9 +2806,10 @@ export default function Booking({ user }) {
         .booking-print-target { display:none; }
         .booking-workspace .lbl { text-transform:none; letter-spacing:normal; font-size:0.875rem; line-height:1.25rem; }
         @page {
-          size:${printMode === "ledger" ? (printableLedgerColumns.length > 12 ? "A3 landscape" : "A4 landscape")
-    : receiptPrintSize === "default" ? "260mm 160mm" : receiptPrintSize};
-          margin:${printMode === "ledger" ? "6mm" : "0"};
+          size:${printMode === "handover" ? "A4 portrait"
+    : printMode === "ledger" ? (printableLedgerColumns.length > 12 ? "A3 landscape" : "A4 landscape")
+      : receiptPrintSize === "default" ? "260mm 160mm" : receiptPrintSize};
+          margin:${printMode === "ledger" || printMode === "handover" ? "10mm" : "0"};
         }
         @media print {
           html, body { height:auto !important; margin:0 !important; overflow:visible !important; background:#fff !important; }
@@ -2536,6 +2842,18 @@ export default function Booking({ user }) {
           .booking-print-target table { break-inside:avoid; page-break-inside:avoid; }
           .booking-print-target tr { break-inside:avoid; page-break-inside:avoid; }
           .booking-ledger-print { display:none; }
+          .booking-handover-print { display:none; }
+          .booking-print-portal[data-mode="handover"] .booking-handover-print {
+            display:block !important; width:100%; color:#111; background:#fff;
+            font:10pt Arial,sans-serif;
+          }
+          .booking-handover-print h1 { margin:0 0 4px; font-size:18pt; }
+          .booking-handover-print p { margin:3px 0 8px; }
+          .booking-handover-print table { width:100%; margin:10px 0; border-collapse:collapse; }
+          .booking-handover-print th, .booking-handover-print td {
+            border:1px solid #555; padding:5px; text-align:left; vertical-align:top;
+          }
+          .booking-handover-print th { background:#e9efed !important; }
           .booking-print-portal[data-mode="ledger"] .booking-ledger-print { display:block !important; width:100%; color:#111; background:#fff; font:9pt "Noto Sans Devanagari","Mangal",sans-serif; }
           .booking-ledger-print h1 { margin:0 0 4px; font-size:16pt; }
           .booking-ledger-print p { margin:0 0 10px; }
@@ -2559,6 +2877,21 @@ export default function Booking({ user }) {
             <strong>{selectedTrip.trip_ref}</strong>
           </div>}
           <div className="booking-header-controls">
+            <span role="status" aria-label="Connection status"
+              className={`inline-flex min-h-10 items-center gap-2 rounded-lg border px-3 text-sm font-semibold ${
+                connectionStatus === "connected" ? "border-green-300 bg-green-50 text-green-900"
+                  : connectionStatus === "offline" ? "border-red-300 bg-red-50 text-red-900"
+                    : "border-amber-300 bg-amber-50 text-amber-950"
+              }`}>
+              <span aria-hidden="true" className={`h-2.5 w-2.5 rounded-full ${
+                connectionStatus === "connected" ? "bg-green-600"
+                  : connectionStatus === "offline" ? "bg-red-600" : "bg-amber-600"
+              }`} />
+              {connectionStatus === "connected" ? t("Server connected", "सर्वर जुड़ा है")
+                : connectionStatus === "offline" ? t("Device offline", "डिवाइस ऑफ़लाइन")
+                  : connectionStatus === "server-unavailable" ? t("Server not responding", "सर्वर जवाब नहीं दे रहा")
+                    : t("Checking connection…", "कनेक्शन जाँचा जा रहा है…")}
+            </span>
             <div className="booking-header-site">
               {owner && <label className="flex w-full items-center gap-2">
                 <span className="lbl mb-0 shrink-0">{t("Site / Garage", "साइट / गैराज")}</span>
@@ -2620,6 +2953,13 @@ export default function Booking({ user }) {
               {todaySummary.error && <button type="button" className="btn-s min-h-9 px-3 py-1.5 text-sm"
                 onClick={() => setTodaySummaryRetry((current) => current + 1)}>
                 {t("Retry summary", "सारांश फिर से देखें")}
+              </button>}
+              {owner && canFinanceRead && <button type="button" className="btn-s min-h-9 px-3 py-1.5 text-sm"
+                disabled={!todaySummaryCurrent || todaySummary.loading || Boolean(todaySummary.error)}
+                aria-expanded={handoverReviewOpen}
+                onClick={() => setHandoverReviewOpen((open) => !open)}>
+                {t(handoverReviewOpen ? "Close handover review" : "Review handover",
+                  handoverReviewOpen ? "दिन का हिसाब बंद करें" : "दिन का हिसाब देखें")}
               </button>}
             </div>
             <div className="booking-today-summary-metrics grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-[repeat(3,minmax(0,1fr))_auto]">
@@ -2685,6 +3025,132 @@ export default function Booking({ user }) {
               {t("You do not have permission to view receipt and payment totals.", "आपको रसीद और भुगतान का हिसाब देखने की अनुमति नहीं है।")}
             </p>}
           </Card>
+          {owner && canFinanceRead && handoverReviewOpen && todaySummaryCurrent
+            && !todaySummary.loading && !todaySummary.error && <Card role="region"
+              aria-label="Daily handover review" className="border-2 border-brand-300 p-4 sm:p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-extrabold">{t("Daily handover review", "दिन का हिसाब")}</h2>
+                <p className="text-sm text-muted">{site?.name} · {dmy(selectedDate)}</p>
+              </div>
+              <button type="button" className="btn-p min-h-11" onClick={() => setPrintMode("handover")}>
+                <Printer size={17} /> {t("Print / save PDF", "प्रिंट / PDF सेव करें")}
+              </button>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <p className="rounded-lg border border-line bg-white p-3 text-sm">{t("Trips", "यात्राएँ")}
+                <strong className="block text-xl">{handoverTripRows.length}</strong></p>
+              <p className="rounded-lg border border-line bg-white p-3 text-sm">{t("Receipts", "रसीदें")}
+                <strong className="block text-xl">{handoverReceipts.length}</strong></p>
+              <p className="rounded-lg border border-line bg-white p-3 text-sm">{t("Collected", "मिली रकम")}
+                <strong className="block text-xl">{money(handoverTotals.collected / 100)}</strong></p>
+              <p className="rounded-lg border border-line bg-white p-3 text-sm">{t("Outstanding", "बाकी")}
+                <strong className="block text-xl">{money(handoverTotals.outstanding / 100)}</strong></p>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <section className="rounded-lg bg-canvas p-3">
+                <h3 className="font-bold">{t("Trips and collections", "यात्राएँ और मिली रकम")}</h3>
+                {handoverTripRows.length ? <ul className="mt-2 divide-y divide-line">
+                  {handoverTripRows.map((trip) => <li key={trip.id} className="flex justify-between gap-2 py-2 text-sm">
+                    <span>{trip.trip_ref} · {trip.status}</span>
+                    <span>{trip.handoverReceiptCount} {t("receipts", "रसीदें")} · {money(trip.handoverCollectedCents / 100)}</span>
+                  </li>)}
+                </ul> : <p className="mt-2 text-sm text-muted">{t("No trips for this date.", "इस तारीख़ की यात्रा नहीं है।")}</p>}
+              </section>
+              <section className="rounded-lg bg-amber-50 p-3">
+                <h3 className="font-bold">{t("Needs review", "जाँच बाकी")}</h3>
+                <ul className="mt-2 space-y-1 text-sm">
+                  <li>{handoverTotals.unpriced} {t("receipts missing Bhada", "रसीदों में भाड़ा नहीं भरा")}</li>
+                  <li>{handoverTotals.unpaid} {t("receipts with balance due", "रसीदों में रकम बाकी")}</li>
+                  <li>{handoverTotals.orderChecks} {t("receipts needing order check", "रसीदों का ऑर्डर जाँचना बाकी")}</li>
+                  <li>{handoverTripRows.filter((trip) => trip.status === "open").length} {t("open trips", "चालू यात्राएँ")}</li>
+                </ul>
+                {handoverReceipts.some((receipt) => receipt.rent == null
+                  || Number(receipt.outstanding) > 0 || !receipt.reconciled) && <ul className="mt-2 space-y-1 border-t border-amber-300 pt-2 text-xs">
+                  {handoverReceipts.filter((receipt) => receipt.rent == null
+                    || Number(receipt.outstanding) > 0 || !receipt.reconciled).slice(0, 5)
+                    .map((receipt) => <li key={receipt.id}>
+                      {receipt.lr_ref} · {receipt.receiver_name || t("Receiver missing", "प्राप्तकर्ता नहीं")}
+                    </li>)}
+                </ul>}
+              </section>
+            </div>
+            <p className="mt-3 text-xs text-muted">
+              {t("Review only: this summary does not record payments or close trips.", "यह केवल जाँच है; इससे भुगतान दर्ज या यात्रा बंद नहीं होती।")}
+            </p>
+          </Card>}
+          {owner && ownerAttentionEnabled && <Card role="region" aria-label={t("Needs attention", "ध्यान देने वाली चीज़ें")}
+            className="border border-amber-300 bg-amber-50/70 p-4 sm:p-5">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-extrabold">{t("Needs attention", "ध्यान देने वाली चीज़ें")}</h2>
+                <p className="text-sm text-muted">
+                  {t("Items that may need an owner’s review at this site.", "इस साइट पर मालिक की जाँच के लिए ज़रूरी काम।")}
+                </p>
+              </div>
+              {ownerAttention.error && <button type="button" className="btn-s min-h-10"
+                onClick={() => setOwnerAttentionRetry((current) => current + 1)}>
+                {t("Retry", "फिर से देखें")}
+              </button>}
+            </div>
+            {!ownerAttentionCurrent || ownerAttention.loading
+              ? <p role="status" className="rounded-lg bg-white p-3 text-sm font-semibold">
+                {t("Checking site records…", "साइट के रिकॉर्ड देखे जा रहे हैं…")}
+              </p>
+              : ownerAttention.error
+                ? <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">
+                  {t("Could not load the owner attention list.", "मालिक की ध्यान सूची नहीं खुल सकी।")} {ownerAttention.error}
+                </p>
+                : <div className="grid gap-3 md:grid-cols-3">
+                  <section className="rounded-lg border border-line bg-white p-3" aria-label={t("Overdue promised payments", "वादा की तारीख़ पार भुगतान")}>
+                    <h3 className="font-bold">{t("Overdue promises", "वादा की तारीख़ पार")}</h3>
+                    <p className="text-sm text-muted">{overduePromises.length} {t("receipt(s)", "रसीदें")}</p>
+                    {overduePromises.length ? <ul className="mt-2 space-y-2">
+                      {overduePromises.slice(0, 4).map((row) => <li key={row.id}>
+                        <button type="button" className="min-h-10 w-full rounded-md bg-red-50 px-2 py-1 text-left text-sm font-semibold text-red-900 hover:bg-red-100"
+                          onClick={() => navigate("/booking/finance?filter=overdue-promise")}>
+                          {row.lr_ref} · {row.receiver_name || t("No receiver", "प्राप्तकर्ता नहीं")}
+                          <span className="block text-xs font-normal">{t("Promised", "वादा")} {dmy(row.promised_date)}</span>
+                        </button>
+                      </li>)}
+                    </ul> : <p className="mt-2 text-sm text-muted">{t("No overdue promises.", "कोई वादा की तारीख़ पार नहीं हुई।")}</p>}
+                    {overduePromises.length > 4 && <button type="button" className="mt-2 min-h-10 text-sm font-semibold text-brand-700 underline"
+                      onClick={() => navigate("/booking/finance?filter=overdue-promise")}>
+                      {t("View all", "सभी देखें")}
+                    </button>}
+                  </section>
+                  <section className="rounded-lg border border-line bg-white p-3" aria-label={t("Receipts missing charges", "रकम के बिना रसीदें")}>
+                    <h3 className="font-bold">{t("Missing Bhada", "भाड़ा नहीं भरा")}</h3>
+                    <p className="text-sm text-muted">{unpricedReceipts.length} {t("receipt(s)", "रसीदें")}</p>
+                    {unpricedReceipts.length ? <ul className="mt-2 space-y-2">
+                      {unpricedReceipts.slice(0, 4).map((row) => <li key={row.id}>
+                        <button type="button" className="min-h-10 w-full rounded-md bg-amber-50 px-2 py-1 text-left text-sm font-semibold text-amber-950 hover:bg-amber-100"
+                          onClick={() => navigate("/booking/finance?filter=unpriced")}>
+                          {row.lr_ref} · {row.receiver_name || t("No receiver", "प्राप्तकर्ता नहीं")}
+                          <span className="block text-xs font-normal">{row.trip_ref || ""}</span>
+                        </button>
+                      </li>)}
+                    </ul> : <p className="mt-2 text-sm text-muted">{t("All receipts have Bhada entered.", "सभी रसीदों में भाड़ा भरा है।")}</p>}
+                    {unpricedReceipts.length > 4 && <button type="button" className="mt-2 min-h-10 text-sm font-semibold text-brand-700 underline"
+                      onClick={() => navigate("/booking/finance?filter=unpriced")}>
+                      {t("View all", "सभी देखें")}
+                    </button>}
+                  </section>
+                  <section className="rounded-lg border border-line bg-white p-3" aria-label={t("Open trips to close", "बंद करने योग्य चालू यात्राएँ")}>
+                    <h3 className="font-bold">{t("Open trips", "चालू यात्राएँ")}</h3>
+                    <p className="text-sm text-muted">{attentionTrips.length} {t("trip(s)", "यात्राएँ")}</p>
+                    {attentionTrips.length ? <ul className="mt-2 max-h-64 space-y-2 overflow-y-auto">
+                      {attentionTrips.map((trip) => <li key={trip.id}>
+                        <button type="button" className="min-h-10 w-full rounded-md bg-brand-50 px-2 py-1 text-left text-sm font-semibold text-brand-900 hover:bg-brand-100"
+                          onClick={() => openDashboardTripAction(trip, "close")}>
+                          {trip.trip_ref} · {trip.truck_no || t("Vehicle not entered", "गाड़ी नंबर नहीं भरा")}
+                          <span className="block text-xs font-normal">{t("Review closeout", "बंद करने से पहले जाँचें")}</span>
+                        </button>
+                      </li>)}
+                    </ul> : <p className="mt-2 text-sm text-muted">{t("No open trips need closing.", "बंद करने वाली चालू यात्रा नहीं है।")}</p>}
+                  </section>
+                </div>}
+          </Card>}
           {tripFormOpen && <Card className="p-4 sm:p-6">
             <h2 className="mb-4 text-xl font-bold">{t("Create trip", "यात्रा बनाएँ")}</h2>
             <form onSubmit={createTrip} className="grid gap-4 sm:grid-cols-2">
@@ -2854,9 +3320,13 @@ export default function Booking({ user }) {
                 senderAddressEnabled={senderAddressEnabled}
                 receiverAddressEnabled={receiverAddressEnabled}
                 receiverPhoneEnabled={receiverPhoneEnabled}
+                partyNameHindiEnabled={partyNameHindiEnabled}
                 language={language}
                 onCancel={() => { setReceiptFormOpen(false); setEditingReceipt(null); }}
-                onSaved={receiptSaved} />
+                onSaved={receiptSaved}
+                onPartyDictionaryUpdated={(dictionary) => setSites((current) => current.map((item) =>
+                  item.id === selectedTrip.site_id
+                    ? { ...item, config: { ...item.config, hindi_dictionary: dictionary } } : item))} />
             </div>
           </>}
           {!receiptFormOpen && selectedTrip?.status === "open" && !isLedgerLocked(selectedTrip) && can("lrs:create") &&
@@ -2896,11 +3366,15 @@ export default function Booking({ user }) {
                     <h3 className="font-bold">{receipt.lr_ref}</h3>
                     <span className="receipt-list-parties">
                       <span title={receipt.sender_name || ""}>
-                        {partyName(receipt.sender_name, receipt.sender_name_hindi_verified, "hi")}
+                        {partyName(
+                          receipt.sender_name, receipt.sender_name_hindi_verified, "hi", partyNameDictionary,
+                        )}
                       </span>
                       {" → "}
                       <span title={receipt.receiver_name || ""}>
-                        {partyName(receipt.receiver_name, receipt.receiver_name_hindi_verified, "hi")}
+                        {partyName(
+                          receipt.receiver_name, receipt.receiver_name_hindi_verified, "hi", partyNameDictionary,
+                        )}
                       </span>
                     </span>
                     {receiverPhoneEnabled && receipt.receiver_phone && <span className="receipt-list-phone">
@@ -3269,7 +3743,10 @@ export default function Booking({ user }) {
                     </div>
                     <p className="mt-3 text-base" lang={ledgerPartyNameLanguage}>
                       <span title={row.sender_name || ""}>
-                        {partyName(row.sender_name, row.sender_name_hindi_verified, ledgerPartyNameLanguage)}
+                        {partyName(
+                          row.sender_name, row.sender_name_hindi_verified,
+                          ledgerPartyNameLanguage, partyNameDictionary,
+                        )}
                       </span>
                       {" → "}{receiverNameCell(row)}
                     </p>
@@ -3340,7 +3817,7 @@ export default function Booking({ user }) {
           <p className="mt-3 text-xs text-muted">Use “Save as PDF” in the browser print dialog to create a PDF file.</p>
         </section>
       </div>}
-      {(printReceipt || printMode === "ledger") && createPortal(
+      {(printReceipt || printMode === "ledger" || printMode === "handover") && createPortal(
         <div className="booking-print-portal" data-mode={printMode}>
           {printReceipt && <ReceiptPrint receipt={printReceipt} trip={selectedTrip} site={site}
             branding={user?.branding} showCharges={canFinanceRead}
@@ -3384,6 +3861,48 @@ export default function Booking({ user }) {
             {canFinanceRead && <p className="mt-2 text-right font-bold">
               कुल योग (भाड़ा + हमाली + रसीद शुल्क): {money(ledgerTotals.total)}
             </p>}
+          </div>}
+          {printMode === "handover" && <div className="booking-handover-print">
+            <h1>{user?.branding?.name || user?.tenant_name || site?.name} · Daily handover</h1>
+            <p>Site: {site?.name || ""} · Date: {dmy(selectedDate)}</p>
+            <table>
+              <tbody>
+                <tr><th>Trips</th><td>{handoverTripRows.length}</td>
+                  <th>Receipts</th><td>{handoverReceipts.length}</td></tr>
+                <tr><th>Total charges</th><td>{money(handoverTotals.charges / 100)}</td>
+                  <th>Collected</th><td>{money(handoverTotals.collected / 100)}</td></tr>
+                <tr><th>Outstanding</th><td>{money(handoverTotals.outstanding / 100)}</td>
+                  <th>Open trips</th><td>{handoverTripRows.filter((trip) => trip.status === "open").length}</td></tr>
+                <tr><th>Unpriced receipts</th><td>{handoverTotals.unpriced}</td>
+                  <th>Order checks pending</th><td>{handoverTotals.orderChecks}</td></tr>
+              </tbody>
+            </table>
+            <h2>Trips</h2>
+            <table>
+              <thead><tr><th>Trip</th><th>Vehicle / driver</th><th>Status</th><th>Receipts</th><th>Collected</th></tr></thead>
+              <tbody>{handoverTripRows.map((trip) => <tr key={trip.id}>
+                <td>{trip.trip_ref}</td>
+                <td>{[trip.truck_no, trip.driver_name].filter(Boolean).join(" · ") || "Not entered"}</td>
+                <td>{trip.status}</td>
+                <td>{trip.handoverReceiptCount}</td>
+                <td>{money(trip.handoverCollectedCents / 100)}</td>
+              </tr>)}</tbody>
+            </table>
+            <h2>Unresolved receipts</h2>
+            <table>
+              <thead><tr><th>Receipt</th><th>Trip</th><th>Receiver</th><th>Charge status</th><th>Collected</th><th>Due</th><th>Order check</th></tr></thead>
+              <tbody>{handoverReceipts.filter((receipt) => receipt.rent == null
+                || Number(receipt.outstanding) > 0 || !receipt.reconciled).map((receipt) => <tr key={receipt.id}>
+                <td>{receipt.lr_ref}</td><td>{receipt.trip_ref}</td><td>{receipt.receiver_name || "—"}</td>
+                <td>{receipt.rent == null ? "Bhada missing" : "Priced"}</td>
+                <td>{money(receipt.paid ?? receipt.paid_total)}</td><td>{money(receipt.outstanding)}</td>
+                <td>{receipt.reconciled ? "Checked" : "Pending"}</td>
+              </tr>)}</tbody>
+            </table>
+            {!handoverReceipts.some((receipt) => receipt.rent == null
+              || Number(receipt.outstanding) > 0 || !receipt.reconciled)
+              && <p>No unresolved receipt items for this date.</p>}
+            <p>Prepared for review only. No payments or trips were changed by this report.</p>
           </div>}
         </div>,
         document.body,
