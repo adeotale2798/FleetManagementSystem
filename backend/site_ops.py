@@ -82,6 +82,8 @@ class SiteUpdate(StrictModel):
 
 class ReceiptControls(StrictModel):
     hindi_conversion_enabled: bool = True
+    party_name_hindi_enabled: bool = True
+    owner_attention_enabled: bool = False
     receipt_language: Literal["hindi", "english"] = "hindi"
     receipt_print_size: Literal["default", "80mm", "58mm"] = "default"
     sender_address_enabled: bool = True
@@ -89,6 +91,27 @@ class ReceiptControls(StrictModel):
     receiver_phone_enabled: bool = True
     receipt_fee: Decimal = Field(default=Decimal("2.00"), ge=0, decimal_places=2)
     overdue_after_days: int = Field(default=30, ge=1, le=3650)
+
+
+class PartyNameTranslation(StrictModel):
+    english: str = Field(min_length=1, max_length=160)
+    hindi: str = Field(min_length=1, max_length=160)
+
+    @field_validator("english", "hindi")
+    @classmethod
+    def normalize_translation_text(cls, value):
+        return " ".join(value.split())
+
+    @field_validator("hindi")
+    @classmethod
+    def require_devanagari_translation(cls, value):
+        if not re.search(r"[\u0900-\u097f]", value):
+            raise ValueError("Hindi party names must include Devanagari text")
+        return value
+
+
+class PartyNameDictionaryUpdate(StrictModel):
+    entries: list[PartyNameTranslation] = Field(min_length=1, max_length=2)
 
 
 class BookingReceiptVisibility(StrictModel):
@@ -339,6 +362,15 @@ class CategoryCreate(StrictModel):
     name: str = Field(min_length=1, max_length=80)
 
 
+class PartyNameSuggestionUpdate(StrictModel):
+    role: Literal["sender", "receiver"]
+    original_name: str = Field(min_length=1, max_length=160)
+    name: Optional[str] = Field(default=None, max_length=160)
+    phone: Optional[str] = Field(default=None, max_length=30)
+    retired: bool = False
+    reason: str = Field(default="", max_length=500)
+
+
 class LegacyMigration(StrictModel):
     site_id: str
     confirm: bool = False
@@ -392,6 +424,39 @@ def _site_config_with_receipt_controls(config, existing=None):
     controls = ReceiptControls.model_validate(raw_controls)
     result["receipt_controls"] = controls.model_dump(mode="json")
     return result
+
+
+def _merge_party_name_dictionary(dictionary, entries):
+    merged = []
+    indexes = {}
+    for item in dictionary if isinstance(dictionary, list) else []:
+        if not isinstance(item, dict):
+            continue
+        english = " ".join(str(item.get("english") or "").split())
+        hindi = " ".join(str(item.get("hindi") or "").split())
+        if english and hindi:
+            key = english.casefold()
+            if key in indexes:
+                merged[indexes[key]] = {"english": english, "hindi": hindi}
+            else:
+                indexes[key] = len(merged)
+                merged.append({"english": english, "hindi": hindi})
+
+    changed = []
+    for entry in entries:
+        english = " ".join(entry.english.split())
+        hindi = " ".join(entry.hindi.split())
+        key = english.casefold()
+        new_entry = {"english": english, "hindi": hindi}
+        index = indexes.get(key)
+        if index is None:
+            indexes[key] = len(merged)
+            merged.append(new_entry)
+            changed.append(new_entry)
+        elif merged[index]["hindi"] != hindi:
+            merged[index] = new_entry
+            changed.append(new_entry)
+    return merged, changed
 
 
 def _receipt_controls(site):
@@ -571,10 +636,39 @@ def _hindi_digits(value: Any) -> str:
     return str(value).translate(str.maketrans("0123456789", "०१२३४५६७८९"))
 
 
-def _ledger_hindi_text(value: Any) -> str:
+def _ledger_hindi_text(value: Any, dictionary: Any = None) -> str:
     text = str(value or "").strip()
     if not text:
         return text
+    custom_dictionary = {}
+    if isinstance(dictionary, dict):
+        entries = dictionary.items()
+    elif isinstance(dictionary, list):
+        entries = (
+            (entry.get("english"), entry.get("hindi"))
+            for entry in dictionary if isinstance(entry, dict)
+        )
+    else:
+        entries = ()
+    for english, hindi in entries:
+        if (isinstance(english, str) and english.strip() and isinstance(hindi, str)
+                and hindi.strip() and any("\u0900" <= character <= "\u097f" for character in hindi)):
+            custom_dictionary[" ".join(english.split()).lower()] = hindi.strip()
+    normalized_text = " ".join(text.split()).lower()
+    if normalized_text in custom_dictionary:
+        return custom_dictionary[normalized_text]
+
+    for english, hindi in sorted(
+        ((key, result) for key, result in custom_dictionary.items() if " " in key),
+        key=lambda entry: len(entry[0]), reverse=True,
+    ):
+        phrase = r"\s+".join(re.escape(word) for word in english.split())
+        text = re.sub(
+            rf"(^|[^\w]){phrase}(?=$|[^\w])",
+            lambda match: f"{match.group(1)}{hindi}",
+            text,
+            flags=re.IGNORECASE,
+        )
     common_goods = {
         "saman": "सामान", "dag": "डाग",
         "auto": "ऑटो", "truck": "ट्रक", "cement": "सीमेंट",
@@ -602,11 +696,11 @@ def _ledger_hindi_text(value: Any) -> str:
         "pipe": "पाइप", "rod": "छड़", "plastic": "प्लास्टिक",
         "paper": "कागज़", "potato": "आलू", "mango": "आम", "onion": "प्याज़",
         "medicine": "दवाई", "water": "पानी",
-        "general": "जनरल", "kasva": "कस्वा", "kaswa": "कस्वा",
+        "general": "जनरल", "new": "न्यू", "kasva": "कस्वा", "kaswa": "कस्वा",
         "jadhav": "जधव", "bogande": "बोगांडे", "agarbatti": "अगरबत्ती",
         "aniket": "अनिकेत", "chandani": "चंदानी", "chandmal": "चंदमल",
         "chandnamal": "चंदनमल", "hiralal": "हीरालाल", "patil": "पाटिल",
-        "rahul": "राहुल",
+        "rahul": "राहुल", "trader": "ट्रेडर", "traders": "ट्रेडर्स",
     }
     if text.lower() in common_goods:
         return common_goods[text.lower()]
@@ -632,6 +726,8 @@ def _ledger_hindi_text(value: Any) -> str:
 
     def translate_word(word: str) -> str:
         lower = word.lower()
+        if lower in custom_dictionary:
+            return custom_dictionary[lower]
         if lower in common_goods:
             return common_goods[lower]
         if any("\u0900" <= character <= "\u097f" for character in word):
@@ -739,6 +835,14 @@ async def initialize_site_storage():
         await db.site_receivers.create_index(
             [("business_id", 1), ("site_id", 1), ("operating_date", 1), ("normalized_name", 1)],
             name="site_receiver_daily_lookup",
+        )
+        await db.site_party_names.create_index(
+            [("business_id", 1), ("site_id", 1), ("role", 1), ("normalized_name", 1)],
+            unique=True, name="site_party_name_unique",
+        )
+        await db.site_party_name_suppressions.create_index(
+            [("business_id", 1), ("site_id", 1), ("role", 1), ("normalized_name", 1)],
+            unique=True, name="site_party_name_suppression_unique",
         )
         await db.parties.create_index(
             [("business_id", 1), ("site_id", 1), ("site_receiver_id", 1)],
@@ -1029,6 +1133,55 @@ async def update_site(site_id: str, body: SiteUpdate, u=Depends(site_user)):
                  old={k: site.get(k) for k in changes if k in site},
                  new={k: updated.get(k) for k in changes if k in updated})
     return _doc(updated)
+
+
+@router.post("/sites/{site_id}/party-name-dictionary")
+async def save_site_party_name_translations(
+    site_id: str, body: PartyNameDictionaryUpdate, u=Depends(site_user),
+):
+    site = await _site_for_user(site_id, u, "lrs:create")
+    business_id = str(site["business_id"])
+    if (site.get("config") or {}).get("receipt_controls", {}).get("party_name_hindi_enabled") is False:
+        raise HTTPException(409, "Hindi party-name fields are disabled for this site")
+
+    for _attempt in range(5):
+        current = await db.sites.find_one({"_id": site_id, "business_id": business_id})
+        if not current:
+            raise HTTPException(404, "Site not found")
+        config = current.get("config") or {}
+        if config.get("receipt_controls", {}).get("party_name_hindi_enabled") is False:
+            raise HTTPException(409, "Hindi party-name fields are disabled for this site")
+        raw_dictionary = config.get("hindi_dictionary")
+        updated_dictionary, changed = _merge_party_name_dictionary(raw_dictionary, body.entries)
+        if not changed:
+            return {"hindi_dictionary": updated_dictionary}
+
+        selector = {"_id": site_id, "business_id": business_id}
+        if "hindi_dictionary" in config:
+            selector["config.hindi_dictionary"] = raw_dictionary
+        else:
+            selector["config.hindi_dictionary"] = {"$exists": False}
+        now = now_iso()
+        result = await db.sites.update_one(selector, {"$set": {
+            "config.hindi_dictionary": updated_dictionary,
+            "updated_at": now,
+        }})
+        if result.matched_count:
+            await _audit(
+                current, u, "party_name.translation_saved", "party_name_dictionary",
+                ",".join(entry["english"] for entry in changed),
+                old={"entries": [
+                    {"english": entry["english"], "hindi": next(
+                        (item.get("hindi", "") for item in raw_dictionary or []
+                         if isinstance(item, dict)
+                         and " ".join(str(item.get("english") or "").split()).casefold()
+                         == entry["english"].casefold()), ""),
+                    } for entry in changed
+                ]},
+                new={"entries": changed},
+            )
+            return {"hindi_dictionary": updated_dictionary}
+    raise HTTPException(409, "The site Hindi dictionary changed concurrently; retry saving the receipt")
 
 
 @router.post("/sites/{site_id}/manager")
@@ -2765,11 +2918,69 @@ async def _save_category(site, user, kind, value):
         pass
 
 
+async def _remember_site_party_name(site, role, name, operating_date, phone=""):
+    normalized = " ".join(str(name or "").split()).casefold()
+    if not normalized:
+        return
+    values = {
+        "name": " ".join(str(name).split()),
+        "last_seen": operating_date,
+    }
+    if role == "receiver" and phone:
+        values["phone"] = phone
+    query = _scoped(
+        str(site["business_id"]), site["_id"],
+        role=role, normalized_name=normalized,
+    )
+    try:
+        await db.site_party_names.update_one(
+            query,
+            {
+                "$set": values,
+                "$setOnInsert": {
+                    "_id": new_id(), "created_at": now_iso(),
+                },
+            },
+            upsert=True,
+        )
+    except DuplicateKeyError:
+        # Concurrent saves can race on the unique tenant/site/role/name index.
+        await db.site_party_names.update_one(query, {"$set": values})
+
+
+async def _suppress_site_party_name(site, role, normalized_name, reason=""):
+        if not normalized_name:
+            return
+        query = _scoped(
+            str(site["business_id"]), site["_id"],
+            role=role, normalized_name=normalized_name,
+        )
+        await db.site_party_name_suppressions.update_one(
+            query,
+            {
+                "$set": {"reason": reason, "updated_at": now_iso()},
+                "$setOnInsert": {"_id": new_id(), "created_at": now_iso()},
+            },
+            upsert=True,
+        )
+
+
+async def _remember_site_lr_party_names(site, lr):
+    await _remember_site_party_name(
+        site, "sender", lr.get("sender_name"), lr["operating_date"],
+    )
+    await _remember_site_party_name(
+        site, "receiver", lr.get("receiver_name"), lr["operating_date"],
+        lr.get("receiver_phone", ""),
+    )
+
+
 async def _finish_site_lr_creation(site, user, trip, lr):
     lines = lr.get("goods_rows") or lr.get("containers") or []
     await _save_category(site, user, "goods", lr["goods_type"])
     for goods_name in {line["type"] for line in lines}:
         await _save_category(site, user, "goods", goods_name)
+    await _remember_site_lr_party_names(site, lr)
     rent = _decimal_value(lr.get("rent"))
     if rent > 0:
         await _financial_event(
@@ -3202,6 +3413,19 @@ async def update_site_lr(
     )
     if expected_updated_at and not updated_result.matched_count:
         raise HTTPException(409, "This receipt changed elsewhere. Reload it before saving your edits.")
+    party_name_date = (
+        lr.get("operating_date") or lr.get("receipt_date")
+        or trip.get("operating_date") or date.today().isoformat()
+    )
+    if "sender_name" in changes:
+        await _remember_site_party_name(
+            site, "sender", changes["sender_name"], party_name_date,
+        )
+    if "receiver_name" in changes:
+        await _remember_site_party_name(
+            site, "receiver", changes["receiver_name"], party_name_date,
+            changes.get("receiver_phone", lr.get("receiver_phone", "")),
+        )
     await _audit(
         site, u, "lr.updated", "lr", lr_id, old=old_values, new=new_values,
     )
@@ -4394,10 +4618,16 @@ async def list_site_party_suggestions(
     q: str = Query(..., min_length=1, max_length=80),
     u=Depends(site_user),
 ):
+    suggestion_limit = 50
+    fetch_limit = suggestion_limit + 1
     site = await _site_for_user(site_id, u, "lrs:read")
     term = q.strip()
     if not term:
-        return {"senders": [], "receivers": []}
+        return {
+            "senders": [], "receivers": [],
+            "has_more": {"senders": False, "receivers": False},
+        }
+    normalized_term = " ".join(term.split()).casefold()
 
     prefix = {"$regex": f"^{re.escape(term)}", "$options": "i"}
     async def matches_for(field, include_phone=False):
@@ -4424,17 +4654,221 @@ async def list_site_party_suggestions(
             {"$sort": {"operating_date": -1, "sequence": -1}},
             {"$group": group},
             {"$sort": {"last_seen": -1, "name": 1}},
-            {"$limit": 50},
+            {"$limit": fetch_limit},
             {"$project": projection},
         ]
-        return await db.site_lrs.aggregate(pipeline).to_list(50)
+        return await db.site_lrs.aggregate(pipeline).to_list(fetch_limit)
 
-    senders, receivers = await asyncio.gather(
+    async def saved_names_for(role):
+        query = _scoped(
+            str(site["business_id"]), site_id, role=role, active={"$ne": False},
+            normalized_name={"$regex": f"^{re.escape(normalized_term)}"},
+        )
+        cursor = db.site_party_names.find(
+            query, {"_id": 0, "name": 1, "phone": 1, "last_seen": 1},
+        ).sort([("last_seen", -1), ("name", 1)]).limit(fetch_limit)
+        return await cursor.to_list(fetch_limit)
+
+    async def without_suppressed_names(role, *sources):
+        normalized_names = list(dict.fromkeys(
+            " ".join(str(item.get("name") or "").split()).casefold()
+            for source in sources for item in source
+            if " ".join(str(item.get("name") or "").split())
+        ))
+        if not normalized_names:
+            return sources
+        suppressed = await db.site_party_name_suppressions.find(
+            _scoped(
+                str(site["business_id"]), site_id, role=role,
+                normalized_name={"$in": normalized_names},
+            ),
+            {"_id": 0, "normalized_name": 1},
+        ).to_list(len(normalized_names))
+        suppressed_names = {item["normalized_name"] for item in suppressed}
+        return tuple([
+            item for item in source
+            if " ".join(str(item.get("name") or "").split()).casefold()
+            not in suppressed_names
+        ] for source in sources)
+
+    old_senders, old_receivers, saved_senders, saved_receivers = await asyncio.gather(
         matches_for("sender_name"),
         matches_for("receiver_name", include_phone=True),
+        saved_names_for("sender"),
+        saved_names_for("receiver"),
+    )
+    (old_senders, saved_senders), (old_receivers, saved_receivers) = await asyncio.gather(
+        without_suppressed_names("sender", old_senders, saved_senders),
+        without_suppressed_names("receiver", old_receivers, saved_receivers),
     )
 
-    return {"senders": senders, "receivers": receivers}
+    def combine_names(saved, historical, include_phone=False):
+        results = []
+        by_name = {}
+        for item in [*saved, *historical]:
+            name = " ".join(str(item.get("name") or "").split())
+            key = " ".join(name.split()).casefold()
+            if not key:
+                continue
+            existing = by_name.get(key)
+            if existing:
+                item_last_seen = str(item.get("last_seen") or "")
+                if item_last_seen > existing.get("last_seen", ""):
+                    existing["last_seen"] = item_last_seen
+                    existing["name"] = name
+                if include_phone and not existing.get("phone") and item.get("phone"):
+                    existing["phone"] = item["phone"]
+                continue
+            result = {"name": name, "last_seen": str(item.get("last_seen") or "")}
+            if include_phone and item.get("phone"):
+                result["phone"] = item["phone"]
+            by_name[key] = result
+            results.append(result)
+        results.sort(key=lambda item: item["name"].casefold())
+        results.sort(key=lambda item: str(item.get("last_seen", "")), reverse=True)
+        has_more = (
+            len(results) > suggestion_limit
+            or len(saved) >= fetch_limit
+            or len(historical) >= fetch_limit
+        )
+        return [
+            {key: value for key, value in item.items() if key in {"name", "phone"}}
+            for item in results[:suggestion_limit]
+        ], has_more
+
+    senders, senders_have_more = combine_names(saved_senders, old_senders)
+    receivers, receivers_have_more = combine_names(
+        saved_receivers, old_receivers, include_phone=True,
+    )
+    return {
+        "senders": senders,
+        "receivers": receivers,
+        "has_more": {
+            "senders": senders_have_more,
+            "receivers": receivers_have_more,
+        },
+    }
+
+
+@router.get("/sites/{site_id}/party-names")
+async def list_site_party_names_for_owner(
+    site_id: str,
+    q: str = Query(..., min_length=1, max_length=80),
+    u=Depends(site_user),
+):
+    _owner(u)
+    return await list_site_party_suggestions(site_id, q, u)
+
+
+@router.patch("/sites/{site_id}/party-names")
+async def update_site_party_name_suggestion(
+    site_id: str, body: PartyNameSuggestionUpdate, u=Depends(site_user),
+):
+    _owner(u)
+    site = await _site_for_user(site_id, u)
+    original_name = _normalize_label(body.original_name, "Original party name", 160)
+    original_normalized = " ".join(original_name.split()).casefold()
+    current_query = _scoped(
+        str(site["business_id"]), site_id, role=body.role,
+        normalized_name=original_normalized,
+    )
+    current = await db.site_party_names.find_one(current_query)
+    current_name = current.get("name", original_name) if current else original_name
+    old_values = {
+        "role": body.role,
+        "name": current_name,
+        "phone": current.get("phone", "") if current else "",
+    }
+    reason = _normalize_label(body.reason, "Reason", 500) if body.reason.strip() else ""
+    if body.retired:
+        await _suppress_site_party_name(
+            site, body.role, original_normalized, reason,
+        )
+        await db.site_party_names.update_one(
+            current_query,
+            {
+                "$set": {
+                    "name": current_name, "active": False,
+                    "retired_at": now_iso(), "retired_by": u["username"],
+                    "retirement_reason": reason,
+                },
+                "$setOnInsert": {
+                    "_id": new_id(), "created_at": now_iso(),
+                    "business_id": str(site["business_id"]), "site_id": site_id,
+                    "role": body.role, "normalized_name": original_normalized,
+                    "last_seen": "",
+                },
+            },
+            upsert=True,
+        )
+        await _audit(
+            site, u, "party_name.retired", "party_name",
+            f"{body.role}:{original_normalized}",
+            old=old_values, new={**old_values, "active": False}, reason=reason,
+        )
+        return {"retired": True}
+
+    if body.name is None and body.phone is None:
+        raise HTTPException(422, "Provide a corrected name or receiver phone number")
+    if body.role == "sender" and body.phone is not None:
+        raise HTTPException(422, "Phone numbers can only be changed for receiver suggestions")
+    corrected_name = _normalize_label(body.name, "Corrected party name", 160) if body.name is not None else current_name
+    corrected_normalized = " ".join(corrected_name.split()).casefold()
+    target_query = _scoped(
+        str(site["business_id"]), site_id, role=body.role,
+        normalized_name=corrected_normalized,
+    )
+    target = await db.site_party_names.find_one(target_query)
+    target_doc = target if target and corrected_normalized != original_normalized else current
+    target_phone = body.phone if body.phone is not None else (
+        target_doc.get("phone", "") if target_doc else ""
+    )
+    if body.role == "receiver" and body.phone is not None:
+        target_phone = (
+            "" if not body.phone.strip()
+            else _optional_phone(body.phone, "Receiver phone")
+        )
+    target_id = target_doc.get("_id") if target_doc else new_id()
+    target_values = {
+        "name": corrected_name,
+        "last_seen": (target_doc or current or {}).get("last_seen", ""),
+        "active": True,
+    }
+    if body.role == "receiver" and (body.phone is not None or target_doc and target_doc.get("phone")):
+        target_values["phone"] = target_phone
+    await db.site_party_names.update_one(
+        target_query,
+        {
+            "$set": target_values,
+            "$setOnInsert": {
+                "_id": target_id, "created_at": now_iso(),
+                "business_id": str(site["business_id"]), "site_id": site_id,
+                "role": body.role, "normalized_name": corrected_normalized,
+            },
+            "$unset": {"retired_at": "", "retired_by": "", "retirement_reason": ""},
+        },
+        upsert=True,
+    )
+    if corrected_normalized != original_normalized:
+        await _suppress_site_party_name(site, body.role, original_normalized, reason)
+        if current:
+            await db.site_party_names.update_one(
+                current_query,
+                {"$set": {"active": False, "retired_at": now_iso(),
+                          "retired_by": u["username"], "retirement_reason": reason}},
+            )
+    else:
+        await db.site_party_name_suppressions.delete_one(target_query)
+    new_values = {
+        "role": body.role, "name": corrected_name,
+        "phone": target_phone if body.role == "receiver" else "",
+    }
+    await _audit(
+        site, u, "party_name.corrected", "party_name",
+        f"{body.role}:{original_normalized}",
+        old=old_values, new=new_values, reason=reason,
+    )
+    return {"updated": True, **new_values}
 
 
 @router.get("/sites/{site_id}/ledger/entries")
@@ -4698,6 +5132,7 @@ async def export_site_ledger_xlsx(
     if party_name_language not in {"hi", "en"}:
         raise HTTPException(422, "Party name language must be 'hi' or 'en'")
     site = await _site_for_user(site_id, u, "lrs:read")
+    party_name_dictionary = (site.get("config") or {}).get("hindi_dictionary", [])
     if u.get("role") == "site_manager" and "ledger:export" not in (
         (u.get("site_permissions") or {}).get(site_id, [])
     ):
@@ -4817,10 +5252,12 @@ async def export_site_ledger_xlsx(
             lr.get("lr_ref", ""),
             lr.get("sender_name", "") if party_name_language == "en"
             else _ledger_hindi_text(
-                lr.get("sender_name_hindi_verified") or lr.get("sender_name", "")),
+                lr.get("sender_name_hindi_verified") or lr.get("sender_name", ""),
+                party_name_dictionary),
             lr.get("receiver_name", "") if party_name_language == "en"
             else _ledger_hindi_text(
-                lr.get("receiver_name_hindi_verified") or lr.get("receiver_name", "")),
+                lr.get("receiver_name_hindi_verified") or lr.get("receiver_name", ""),
+                party_name_dictionary),
             ", ".join(
                 " - ".join(part for part in (
                     _hindi_digits(line.get("quantity", 0)),
@@ -4861,13 +5298,15 @@ async def export_site_ledger_xlsx(
                "receipt": lr.get("lr_ref", ""),
                "sender": lr.get("sender_name", "") if party_name_language == "en"
                else _ledger_hindi_text(
-                   lr.get("sender_name_hindi_verified") or lr.get("sender_name", "")),
+                   lr.get("sender_name_hindi_verified") or lr.get("sender_name", ""),
+                   party_name_dictionary),
                "senderAddress": _ledger_hindi_text(
                    lr.get("sender_address_hindi") or lr.get("sender_address")),
                "senderPhone": lr.get("sender_phone", ""),
                "receiver": lr.get("receiver_name", "") if party_name_language == "en"
                else _ledger_hindi_text(
-                   lr.get("receiver_name_hindi_verified") or lr.get("receiver_name", "")),
+                   lr.get("receiver_name_hindi_verified") or lr.get("receiver_name", ""),
+                   party_name_dictionary),
                "receiverAddress": _ledger_hindi_text(
                    lr.get("receiver_address_hindi") or lr.get("receiver_address")),
                "receiverPhone": lr.get("receiver_phone", ""),

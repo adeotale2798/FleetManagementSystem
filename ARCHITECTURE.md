@@ -169,6 +169,11 @@ flowchart TD
     DashboardAPI --> Booking["Booking.jsx<br/>Dashboard · Receipts · Ledger"]
     Booking --> TripAPI["Site trip API<br/>atomic server-side numbering"]
     Booking --> ReceiptAPI["Site receipt API<br/>site scope · validation · audit"]
+    Booking --> OwnerAttention["Owner-only needs-attention panel"]
+    OwnerAttention --> SiteFinanceRead["Existing site finance summary<br/>promised balances · missing Bhada"]
+    OwnerAttention --> OpenTripsRead["Existing site trip list<br/>status=open"]
+    SiteFinanceRead --> FinanceFilter["Finance list<br/>filter=overdue-promise / unpriced"]
+    OpenTripsRead --> Closeout["Existing trip closeout review"]
     ReceiptAPI --> CanonicalLRUpdate["Canonical site-LR records<br/>Decimal-derived total rent"]
     Booking --> LedgerAPI["Site ledger JSON / CSV APIs<br/>authorized site scope"]
     LedgerAPI --> CanonicalLRUpdate
@@ -184,12 +189,92 @@ Design implementation notes:
 - Depth is provided by restrained CSS elevation and layered surfaces. No WebGL/3D renderer or new runtime dependency is introduced.
 - Booking screens use canonical site trips/LRs. The shared authenticated shell shows a live Asia/Kolkata clock. Hindi input support is offline and stores source text separately from editable Hindi values. Each goods row stores independent Bhada/Hamali amounts, and receipt-level totals are derived server-side from those row amounts. Blank per-good charge input is normalized to zero; UI fields start at whole rupees but accept up to two fractional digits. Branded Hindi LR prints show each row's Bhada, Hamali and total plus receipt totals and the receipt's persisted creation timestamp rendered in IST. The ledger selects one trip for the chosen date and presents Hindi, read-only receipt details in a spreadsheet-style grid; only Bhada and Hamali are editable by users with charge permission. Creator attribution shows Admin/Manager and name, without exposing login IDs. Booking receipt phone values must be exactly ten ASCII digits when present.
 - Same-day similar-receiver conflicts return a structured `409` message and candidate identities. The receipt form lets the manager confirm an existing receiver or explicitly create a different identity, then retries with the selected identity; API errors with structured messages are surfaced rather than replaced with a generic request failure.
+- New receipt creation uses the existing idempotency key for ambiguous network/5xx retries. The client retains the method, URL, body and key, locks mutable fields while the response is uncertain, and repeats the same request; it does not add an endpoint or persistence model. A successful new receipt prepares a fresh form and focuses Receiver for repeat entry.
+- The owner attention panel makes read-only calls to the existing site finance and trip list APIs. Promise attention means an outstanding balance with a promised date earlier than today's ISO date; unpriced means an active receipt whose Bhada is null. It does not alter payment or trip state. Finance actions pass an exact filter query parameter; open-trip actions load the selected trip's receipts and open the existing closeout review. Site selection and owner authorization remain enforced by the existing APIs.
 - Legacy dashboard analytics and report APIs remain available to their existing consumers. The owner-only Booking Finance and Audit pages use site-scoped summary and audit APIs; they do not call industrial Finance/Reports endpoints. Booking Finance sums active LR Bhada + Hamali for grand total and separates Bhada collections/outstanding from informational Hamali.
 - The new ledger edits canonical `site_lrs` records through the scoped LR update API. Owners can correct posted/closed receipts with an audit reason; receiver corrections transfer remaining Bhada balances, and void corrections reverse posted payments and charge postings. Owners can restore mistakenly voided receipts with a reason using compensating postings, retaining original void/payment history. The owner ledger settlement checkbox records remaining Bhada as a Cash payment and reverses only settlements made through that checkbox; Finance can settle grouped receiver balances. These payment events remain append-only and audited.
 - Booking `.xlsx` exports are scoped to the selected trip; Hindi goods and quantities are comma-separated per receipt, and financial amounts remain numeric cells with currency formatting. Export formula-like text remains escaped.
 - Successful authenticated API writes increment an atomic per-tenant revision in `platform_db.data_revisions`; revision documents contain only a counter and timestamp, never booking or industrial business data. The authenticated, uncached `GET /api/sync/revision` returns only the caller's tenant counter. The response includes `X-Data-Revision`, exposed by CORS, so the writer's browser can notify other same-business tabs immediately. Other devices poll the counter every two seconds while the page is visible; a changed revision dispatches `fms:refresh`, which reloads active `useFetch` queries and direct-fetch operational pages. Tabs use tenant-named `BroadcastChannel` with a storage-event fallback. Existing app modules remain the source of canonical data; updates do not reload the document or create data copies.
 - The additive dashboard response field does not change authorization, stored data, financial calculations, or the separate canonical office and site trip/LR collections.
 - Global reduced-motion styles honor `prefers-reduced-motion`; mobile layout and navigation are implemented in the shared shell.
+
+### Booking reliability and daily handover (13 October 2026, v1.39.0)
+
+Booking's connection badge combines the browser's `navigator.onLine`/online/offline events with a `GET /api/health` probe on page load and every 30 seconds while visible. It reports a current connectivity signal only; a healthy probe cannot guarantee later API success. Receipt saves separately distinguish offline preflight (not sent), in progress, confirmed saved, and a request that was attempted but whose outcome is uncertain. Ambiguous create retries retain the captured request body and idempotency key; local drafts remain explicitly device-local and are not server-confirmed receipts.
+
+The Finance **Next actions** queue is a frontend composition of existing owner-scoped `/sites/{site_id}/booking-finance` and open-trip reads. Its overdue promise action opens the existing follow-up form. Its missing-Bhada action passes the selected site/trip/receipt in router state to Receipts, where existing trip and LR reads select the record for editing. Navigation state is cleared only after the target record has been loaded or failed to load, so clearing transient state cannot cancel the request. No queue action mutates financial or receipt data unless the owner explicitly saves.
+
+The date-scoped Daily handover review reuses existing site trip and `/sites/{site_id}/ledger/entries` reads, with ledger rows bounded to the selected operating date and paged up to the existing 10,000-row client safety cap. It displays receipt/charge/collection/outstanding totals, open trips, unpriced receipts and unresolved order checks; the print/PDF surface is rendered in a browser print portal. It is review-only and performs no payment, reconciliation, or trip-close mutation. The client uses returned financial values and does not introduce a new accounting source or database collection.
+
+```mermaid
+flowchart LR
+    Browser["Booking browser"]
+    Connection["Online/offline events<br/>+ 30s health probe"]
+    Receipt["Receipt save state<br/>not sent · saving · saved · uncertain"]
+    Health["GET /api/health"]
+    ReceiptAPI["Existing site receipt API<br/>idempotent create"]
+    Finance["Owner Finance Next actions"]
+    FinanceRead["Existing booking-finance + open-trip reads"]
+    RouteState["Transient site / trip / receipt route state"]
+    Edit["Existing receipt + trip reads<br/>explicit edit and save"]
+    Handover["Owner date-scoped review"]
+    TripRead["Existing selected-date trip list"]
+    LedgerRead["Existing selected-date ledger entries"]
+    Print["Browser print / Save as PDF"]
+
+    Browser --> Connection
+    Connection --> Health
+    Browser --> Receipt
+    Receipt --> ReceiptAPI
+    Finance --> FinanceRead
+    Finance --> RouteState
+    RouteState --> Edit
+    Edit --> ReceiptAPI
+    Handover --> TripRead
+    Handover --> LedgerRead
+    Handover --> Print
+```
+
+**Backup/recovery boundary:** MongoDB and the upload volume remain deployment-managed persistence, not an app-managed backup service. The full MongoDB instance must be backed up with all tenant and platform databases together with the configured upload tree; README documents a protected off-host backup and an isolated staging restore drill. No destructive restore is automated or performed by the app.
+
+### Party-name display and receipt-to-ledger date (13 October 2026, v1.39.1)
+
+The shared frontend `partyName` formatter adds phonetic spellings for “New” (`न्यू`) and “Payal” (`पायल`), so “New Payal Traders” displays as “न्यू पायल ट्रेडर्स”; stored Latin names and English display remain unchanged. On an in-app transition from Receipts to Ledger, the selected trip's `operating_date` initializes the Ledger date before trip and ledger reads are scoped. Dashboard-to-Ledger continues to use the dashboard-selected date.
+
+### Editable receipt Hindi party names (13 October 2026, v1.40.0)
+
+Per-site `config.receipt_controls.party_name_hindi_enabled` defaults to enabled for compatibility with existing sites. The owner toggles it in Booking settings. Receipt sender/receiver Hindi inputs auto-fill using the current site's `config.hindi_dictionary` and shared phonetic formatter whenever English names change; the operator can edit/paste a Devanagari correction. A changed translation is sent only after the receipt create/update succeeds to `POST /api/sites/{site_id}/party-name-dictionary`. The endpoint requires the user's site-scoped `lrs:create` permission, validates Devanagari Hindi, atomically compares the prior dictionary snapshot and retries concurrent changes, and audits dictionary additions/updates. The frontend updates its active site dictionary immediately. Since all site party renderers and the backend workbook exporter consume that dictionary, the exact phrase correction is reused in receipt lists/prints, ledger display/print and exports. English source names are not changed. A follow-up dictionary failure is surfaced as “receipt saved, correction not shared”; it is not presented as a failed receipt save.
+
+```mermaid
+sequenceDiagram
+    participant Staff as Owner or authorized site staff
+    participant Form as Receipt form
+    participant API as Site booking API
+    participant Site as Site config.hindi_dictionary
+    participant Views as Receipt / ledger / print / XLSX
+    Staff->>Form: Type English sender / receiver
+    Form->>Form: Auto-fill Hindi using site dictionary + transliteration
+    Staff->>Form: Correct/paste Devanagari if needed
+    Form->>API: Save receipt (English identity + verified Hindi)
+    API-->>Form: Receipt saved
+    Form->>API: POST party-name-dictionary (only changed translations)
+    API->>API: Require lrs:create + validate Devanagari
+    API->>Site: Compare-and-update exact English phrase
+    API->>API: Append site audit event
+    API-->>Form: Updated site dictionary
+    Form->>Views: Replace active site dictionary
+    Views->>Site: Reuse corrected phrase in all site render/export surfaces
+```
+
+### Site dashboard reminder setting and Booking setup UX (13 October 2026, v1.41.0)
+
+`config.receipt_controls.owner_attention_enabled` is a site-level boolean with a backend default of `false`. Booking setup saves it with the selected site's receipt controls. On the Dashboard, the owner-only attention panel is rendered only when that site's value is explicitly `true`; its finance and open-trip data requests are also skipped while disabled. Existing operational data and the separate dashboard alert summary are unaffected.
+
+Booking setup keeps its existing settings model and persistence boundaries, but groups controls under task-focused headings, clarifies site-specific versus all-site scope, and keeps the shared “Save booking settings” action visible while scrolling the long settings form. This is a presentation change: receipt, category, dictionary, and access workflows retain their existing API calls and values.
+
+### Hinglish spelling for “New” (13 October 2026, v1.42.0)
+
+The shared frontend `partyName` formatter and backend `_ledger_hindi_text` exporter both use the exact word override `new` → `न्यू`, so receipt entry suggestions, on-screen party rendering and ledger workbook conversion agree. Full site dictionary phrases and explicit verified Hindi on an individual receipt retain higher precedence. This is a phonetic Hinglish rendering, not a semantic translation of “new”.
 
 ### Booking workflow replacement (29 September 2026)
 
@@ -251,7 +336,9 @@ Authentication facts:
 
 **Booking receipt entry and ledger consistency recorded 10 October 2026 (v1.30.0):** `Booking.jsx` continues to submit and edit site LRs through the tenant-scoped site operations API. An empty Bhada or Hamali is sent as `null`, distinguishing an unentered amount from an amount in display and receipt form state; finance summaries, payment due, receipt fees and settlement calculations remain on their existing server-side rules. Party names are shown from the original sender/receiver name fields, never auto-transliterated from legacy Hindi-name values. Goods Hindi output continues to use the configured goods dictionary without a second editable Hindi field. The receipt save path refreshes the LR list and trip data, and refreshes an already-loaded ledger for the same trip. The ledger groups only consecutive display order for repeated persisted `receiver_identity_id` values, retaining each receipt row and marking confirmed same receivers inline; missing or distinct identities are not merged.
 
-**Cross-trip party suggestions recorded 12 October 2026 (v1.31.0):** The receipt form requests prefix matches from `/sites/{site_id}/party-suggestions` after the first character is entered. The site operations API checks `lrs:read`, scopes every query by tenant and site, excludes voided receipts, limits results to 50 distinct names per role, and returns only sender/receiver names plus receiver phones. The UI combines these with current-trip names, reports lookup failures, and can fill the phone for a selected saved receiver. Party names continue to render as entered; this feature does not add guessed Hindi transliteration or change the goods translation dictionary.
+**Cross-trip party suggestions recorded 12 October 2026 (v1.31.0), refined 13 October 2026 (v1.36.1):** The receipt form requests prefix matches from `/sites/{site_id}/party-suggestions` after the first character is entered. The site operations API checks `lrs:read`, scopes every query by tenant and site, excludes voided receipts, merges the saved registry with historical receipts, and returns the 50 most recently used distinct names per role plus receiver phones. It reports when additional prefix matches may exist so the form can prompt users to type more letters to narrow results. Saves are deduplicated by role and normalized spelling; a concurrent unique-index upsert race retries as an update. The registry is server-side tenant/site data, so authorized users on another device can retrieve it. The UI combines matches with current-trip names, reports lookup failures, and can fill the phone for a selected saved receiver. Party names continue to render as entered; this feature does not add guessed Hindi transliteration or change the goods translation dictionary.
+
+**Owner-managed party suggestions recorded 13 October 2026 (v1.37.0):** Booking setup exposes prefix search and correction/retirement controls for the selected site. `GET /sites/{site_id}/party-names` is owner-only and returns the same bounded, recent-first suggestions as receipt entry. `PATCH /sites/{site_id}/party-names` is owner-only, validates receiver phones and writes before/after values and reason to site audit. Retirement and spelling correction create tenant/site/role-scoped suppression records so matching historical receipt names do not reappear in suggestions; the original receipt data is immutable. The unique suppression index is created lazily with the other site storage indexes; no backfill or migration is required.
 
 **Verified Hindi party names recorded 12 October 2026 (v1.32.0):** Receipt entry accepts optional user-confirmed Devanagari spellings in `sender_name_hindi_verified` and `receiver_name_hindi_verified`. These fields are separate from legacy Hindi-name fields, which may contain inaccurate transliterations and remain excluded from display. Hindi receipt/list/ledger print surfaces prefer the verified spellings and otherwise fall back to the original name; English mode always uses the original. Site-LR create/update APIs validate that non-empty verified values include Devanagari text, persist them with the canonical LR, and the ledger export includes them when present. No automatic name transliteration is attempted.
 
@@ -262,6 +349,12 @@ Authentication facts:
 **Admin ledger party-name language toggle recorded 12 October 2026 (v1.34.0):** The ledger exposes an owner-only Hindi/English switch for sender and receiver display. Its per-site/per-owner preference is stored in browser local storage, defaults to Hindi, and affects desktop/mobile ledger display, print and XLSX export. The XLSX export API accepts `party_name_language=hi|en`; Hindi remains the compatibility default and verified Hindi values take precedence. English mode returns the original stored Latin party names. This preference does not translate goods, addresses, or labels and is not shared to another device.
 
 **Compact ledger toolbar recorded 12 October 2026 (v1.34.1):** The owner-only language switch is positioned beside the Table columns control in the ledger toolbar to avoid a separate full-width row. Its behavior, local preference key, and export contract are unchanged.
+
+**Party-name spelling correction recorded 13 October 2026 (v1.34.2):** The shared frontend party-name formatter and backend XLSX converter include explicit “Trader”/“Traders” spellings (“ट्रेडर”/“ट्रेडर्स”). User-verified Hindi names still take precedence; the stored English/Hinglish party identity is never changed. Keep specific spelling overrides aligned across both converters and cover them in frontend/backend tests.
+
+**Site-specific party-name translations recorded 13 October 2026 (v1.35.0):** The existing owner-managed `site.config.hindi_dictionary` now resolves sender and receiver words or phrases before general phonetic transliteration. Receipt lists and prints, ledger screens and prints, and XLSX export all consume the selected site's dictionary. Per-receipt verified Hindi spellings take priority over the site dictionary; the source English/Hinglish party identity is never rewritten. The dictionary is site-scoped, requires no new collection or migration, and must be passed consistently to frontend formatting and backend export conversion.
+
+**Saved sender/receiver suggestions and confirmation visibility recorded 13 October 2026 (v1.36.0):** Completed LRs maintain a tenant/site-scoped `site_party_names` registry, keyed by role and normalized name, for sender and receiver suggestions; receiver phone is retained when supplied. The suggestions API merges these saved entries with a bounded query over historical non-voided LRs, keeping pre-registry records discoverable without a data migration. Suggestions are prefix-matched and capped at 50 per role. The registry is a suggestion source only: it does not establish identity or replace per-day `site_receivers` matching, which remains receiver-only. When LR save receives a duplicate-receiver confirmation response, the form scrolls the existing decision prompt into view.
 
 ```mermaid
 flowchart TD
@@ -400,6 +493,7 @@ All business API routes are mounted under `/api`. Most business reads/writes dep
 | Settings and masters | `/settings`, `/masters/{res}`, `/parties/suggest` |
 | Industrial Trips and LRs (owner-only) | `/trips`, `/trips/{id}`, `/lrs`, `/lrs/{id}`, `/lr-stats` |
 | Site booking operations (owner/site-scoped) | `/sites`, `/sites/{site_id}/trips`, `/sites/{site_id}/trips/{trip_id}/lrs`, and canonical site trip/LR detail routes |
+| Booking owner attention reads | Owner-only `/sites/{site_id}/booking-finance` and `/sites/{site_id}/trips?status=open`; read existing site finance and trip records without introducing storage or changing financial calculations |
 | Transactions | `/receipts`, `/handovers`, `/expenses`, `/fuel`, `/payments`, `/advances`, `/tpl`; cancel operations use `/{id}/cancel` |
 | Ledger and entity profiles | `/ledger/{etype}/{eid}`, `/profile/{vehicle|driver|party|employee|fuel_pump|partner}/{id}` |
 | Industrial Finance and reports (owner-only) | `/finance/{summary|receivables|payables|cashbook|charts}`, `/reports/{name}`; shared financial reads exclude site-tagged rows |
@@ -414,7 +508,7 @@ All business API routes are mounted under `/api`. Most business reads/writes dep
 
 ## 6. Design and feature map
 
-The daily site-booking interaction is a short Dashboard → Receipts → Ledger flow: select a date and trip, create Hindi-printable receipts under it, then review/edit/print/export the ledger. This remains separate from industrial trip, LR, finance and report workflows. The responsive shell supports desktop navigation and compact mobile navigation/quick actions.
+The daily site-booking interaction is a short Dashboard → Receipts → Ledger flow: select a date and trip, create Hindi-printable receipts under it, then review/edit/print/export the ledger. Receipt creation focuses the required receiver field for clean entries and exposes explicit saving/saved/failed feedback. Uncertain network/5xx creates are locked for retry using the exact captured request and idempotency key. An owner-only Dashboard attention panel reads the selected site's existing finance summary and open trips, filters overdue promised balances and unpriced active receipts, and links to precise Finance filters or the existing trip closeout review. This remains separate from industrial trip, LR, finance and report workflows. The responsive shell supports desktop navigation and compact mobile navigation/quick actions.
 
 ```mermaid
 flowchart TB
@@ -478,6 +572,12 @@ Shared `components/ui.jsx`, `MasterForm.jsx`, and `QuickForms.jsx` provide commo
 ## 9. Architecture change record
 
 For every architecture-affecting feature/change, add a dated note here stating the changed component/boundary, new data or API flow, compatibility/migration impact, and relevant verification. Keep the diagrams in Sections 1–6 synchronized in the same change set. The release/changelog entry lives in [VERSION.md](VERSION.md).
+
+### v1.38.0 — 13 October 2026
+
+- The owner Dashboard reads site finance and open-trip data from existing site-scoped APIs and offers direct, query-filtered Finance views plus the existing trip closeout review. No endpoint, schema, migration, or accounting behavior was added.
+- Receipt entry now focuses the receiver for clean/repeat forms and safely retries uncertain creates from the same request snapshot and existing idempotency key. Changes are frontend-only and do not alter receipt persistence.
+- Verification: focused Booking tests cover attention item classification, exact Finance filters, trip closeout launch, receiver autofocus, and exact-payload/idempotency-key retry.
 
 ### v1.1.2 — 27 September 2026
 

@@ -1,5 +1,6 @@
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
+import { MemoryRouter } from "react-router-dom";
 import { api } from "../lib/api";
 import { exportCSV } from "../lib/export";
 import BookingAudit from "./BookingAudit";
@@ -79,7 +80,7 @@ describe("owner-only booking pages", () => {
 
   const render = async (Page, role = "owner") => {
     await act(async () => {
-      root.render(<Page user={{ role }} />);
+      root.render(<MemoryRouter><Page user={{ role }} /></MemoryRouter>);
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
   };
@@ -258,7 +259,7 @@ describe("owner-only booking pages", () => {
     expect(container.textContent).not.toContain("Bhada by receiver");
 
     await act(async () => {
-      root.render(<BookingAudit user={{ role: "site_manager" }} />);
+      root.render(<MemoryRouter><BookingAudit user={{ role: "site_manager" }} /></MemoryRouter>);
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(container.textContent).toContain("Booking Audit is available to the business owner only.");

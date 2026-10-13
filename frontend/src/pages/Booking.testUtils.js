@@ -1,6 +1,6 @@
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { api } from "../lib/api";
@@ -52,10 +52,14 @@ export function registerBookingTestHarness() {
   };
 
   const mockBookingApi = ({
-    sites = [site], trips = [], ledgerRows = [], receipts = [], tripData = trip,
+    sites = [site], trips = [], ledgerRows = [], receipts = [], financeRows = [], tripData = trip,
   } = {}) => {
     api.get.mockImplementation((path) => {
+      if (path === "/health") return Promise.resolve({ data: { status: "ok" } });
       if (path === "/sites") return Promise.resolve({ data: sites });
+      if (path === `/sites/${site.id}/booking-finance`) {
+        return Promise.resolve({ data: { site, rows: financeRows, totals: {} } });
+      }
       if (path === `/sites/${site.id}/trips`) {
         return Promise.resolve({ data: { rows: trips, total: trips.length } });
       }
@@ -89,9 +93,10 @@ export function registerBookingTestHarness() {
     jest.clearAllMocks();
   });
 
-  const renderBooking = async (section = "dashboard", role = "site_manager") => {
+  const renderBooking = async (section = "dashboard", role = "site_manager", withLedgerNavigation = false) => {
     await act(async () => {
       root.render(<MemoryRouter initialEntries={[`/booking/${section}`]}>
+        {withLedgerNavigation && <LedgerNavigationTestControl />}
         <Routes><Route path="/booking/:section" element={<Booking user={{
           role, name: role === "owner" ? "Owner Name" : "Manager Name",
           site_permissions: {
@@ -130,4 +135,9 @@ export function registerBookingTestHarness() {
     clearBooking,
     setInput,
   };
+}
+
+function LedgerNavigationTestControl() {
+  const navigate = useNavigate();
+  return <button type="button" onClick={() => navigate("/booking/ledger")}>Go to ledger</button>;
 }

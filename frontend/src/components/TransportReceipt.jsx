@@ -59,7 +59,7 @@ function ReceiptLogo({ src, name }) {
 export default function TransportReceipt({
   receipt, settings = {}, company = {}, showCharges = true, language = "hindi",
   printSize = "default", transportDetails = [], extraDetails = [],
-  showSenderAddress = true, showReceiverAddress = true,
+  partyNameDictionary = [], showSenderAddress = true, showReceiverAddress = true,
   showReceiverPhone = true,
 }) {
   if (!receipt) return null;
@@ -68,11 +68,13 @@ export default function TransportReceipt({
     receipt.sender_name || receipt.sender?.name || "",
     receipt.sender_name_hindi_verified,
     language === "english" ? "english" : "hi",
+    partyNameDictionary,
   );
   const receiverName = partyName(
     receipt.receiver_name || receipt.receiver?.name || "",
     receipt.receiver_name_hindi_verified,
     language === "english" ? "english" : "hi",
+    partyNameDictionary,
   );
   const address = settings.address || [company.address, company.city, company.state].filter(Boolean).join(", ");
   const logo = naiduLogo;

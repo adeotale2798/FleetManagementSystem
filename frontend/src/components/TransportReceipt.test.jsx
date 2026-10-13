@@ -117,6 +117,29 @@ describe("TransportReceipt", () => {
     )].map((element) => element.textContent)).toEqual(["दीपक जधव", "कस्वा जनरल"]);
   });
 
+  it("applies the site's verified word and phrase dictionary to printed names", () => {
+    const { container, rerender } = render(<TransportReceipt receipt={{
+    ...receipt,
+    sender_name: "Kasva Traders",
+    receiver_name: "Laxmi Traders",
+    }} partyNameDictionary={[
+    { english: "Traders", hindi: "व्यापारी" },
+    { english: "Kasva Traders", hindi: "कस्वा ट्रेडिंग कंपनी" },
+    ]} />);
+    const getPartyNames = () => [...container.querySelectorAll(
+    ".transport-lr-party-name .transport-lr-writing",
+    )].map((element) => element.textContent);
+
+    expect(getPartyNames()).toEqual(["कस्वा ट्रेडिंग कंपनी", "लक्ष्मि व्यापारी"]);
+    rerender(<TransportReceipt receipt={{
+    ...receipt, sender_name: "Kasva Traders", receiver_name: "Laxmi Traders",
+    }} language="english" partyNameDictionary={[
+    { english: "Traders", hindi: "व्यापारी" },
+    { english: "Kasva Traders", hindi: "कस्वा ट्रेडिंग कंपनी" },
+    ]} />);
+    expect(getPartyNames()).toEqual(["Kasva Traders", "Laxmi Traders"]);
+  });
+
   it("leaves unentered charges and the total blank on the printable receipt", () => {
     const { container } = render(<TransportReceipt receipt={{
       ...receipt,

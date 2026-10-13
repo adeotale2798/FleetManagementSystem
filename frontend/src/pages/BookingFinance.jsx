@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
@@ -21,7 +22,8 @@ const csvSafeText = (value) => {
   return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
 };
 
-export default function BookingFinance({ user }) {
+export default function BookingFinance({ user, initialFilter = "all" }) {
+  const navigate = useNavigate();
   const [sites, setSites] = useState([]);
   const [siteId, setSiteId] = useState(localStorage.getItem("booking_site_id") || "");
   const [data, setData] = useState(null);
@@ -32,7 +34,8 @@ export default function BookingFinance({ user }) {
   const [saveStatus, setSaveStatus] = useState({});
   const [settlementStatus, setSettlementStatus] = useState({});
   const [search, setSearch] = useState("");
-  const [rowFilter, setRowFilter] = useState("all");
+  const [rowFilter, setRowFilter] = useState(() =>
+    ["overdue-promise", "unpriced"].includes(initialFilter) ? initialFilter : "all");
   const [rowPage, setRowPage] = useState(0);
   const [reloadVersion, setReloadVersion] = useState(0);
 
@@ -82,6 +85,8 @@ export default function BookingFinance({ user }) {
     if (rowFilter === "unfollowed") return amount(row.outstanding) > 0
       && !row.promised_date && !row.followup_note && !row.next_contact_date && !row.followup_outcome;
     if (rowFilter === "unpriced") return row.rent == null;
+    if (rowFilter === "overdue-promise") return amount(row.outstanding) > 0
+      && Boolean(row.promised_date && row.promised_date < currentDate);
     if (rowFilter === "overdue") return amount(row.outstanding) > 0
       && (amount(row.age_days) >= overdueAfterDays
         || (row.promised_date && row.promised_date < currentDate));
@@ -136,6 +141,13 @@ export default function BookingFinance({ user }) {
   const unpromisedDueCount = (data?.rows || []).filter((row) =>
     amount(row.outstanding) > 0 && !row.promised_date && !row.followup_note
       && !row.next_contact_date && !row.followup_outcome).length;
+  const queueItems = [
+    ...(data?.rows || []).filter((row) => amount(row.outstanding) > 0
+      && row.promised_date && row.promised_date < currentDate)
+      .map((row) => ({ row, kind: "overdue-promise" })),
+    ...(data?.rows || []).filter((row) => row.rent == null)
+      .map((row) => ({ row, kind: "unpriced" })),
+  ].slice(0, 8);
   const pageCount = Math.ceil(rows.length / PAGE_SIZE);
   const pageRows = rows.slice(rowPage * PAGE_SIZE, (rowPage + 1) * PAGE_SIZE);
   useEffect(() => {
@@ -144,6 +156,23 @@ export default function BookingFinance({ user }) {
   const updateDraft = (row, key, value) => setDrafts((current) => ({
     ...current, [row.id]: { ...(current[row.id] || {}), [key]: value },
   }));
+  const openQueueFollowup = (row) => {
+    setRowFilter("overdue-promise");
+    setSearch(row.lr_ref || "");
+    setRowPage(0);
+    setFollowupOpen((current) => ({ ...current, [row.id]: true }));
+    window.setTimeout(() => document.getElementById("finance-follow-up-list")
+      ?.scrollIntoView?.({ behavior: "smooth", block: "start" }), 0);
+  };
+  const openUnpricedReceipt = (row) => {
+    navigate("/booking/receipts", {
+      state: {
+        bookingAttentionReceipt: {
+          siteId: row.site_id, tripId: row.trip_id, receiptId: row.id,
+        },
+      },
+    });
+  };
   const saveFollowup = async (row) => {
     const changes = drafts[row.id] || {};
     setSaveStatus((current) => ({ ...current, [row.id]: "Saving…" }));
@@ -248,6 +277,39 @@ export default function BookingFinance({ user }) {
           text={sites.length ? "Create receipts at this site to see charges and collections here." : "A booking site must be assigned before finance data can appear."} />
       </Card>}
       {loadedForSite && <>
+        <Card role="region" aria-label="Owner action queue" className="border border-amber-300 bg-amber-50/70 p-4 sm:p-5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-lg font-extrabold">Next actions</h2>
+              <p className="text-sm text-muted">
+                Review overdue promises or add missing Bhada. Nothing is changed until you save an action.
+              </p>
+            </div>
+            <span className="rounded-full bg-white px-3 py-1 text-sm font-bold">
+              {queueItems.length} shown
+            </span>
+          </div>
+          {queueItems.length ? <ol className="grid gap-2 sm:grid-cols-2">
+            {queueItems.map(({ row, kind }) => <li key={`${kind}:${row.id}`}
+              className="flex min-w-0 flex-col justify-between gap-2 rounded-lg border border-line bg-white p-3 sm:flex-row sm:items-center">
+              <div className="min-w-0">
+                <strong className="block truncate">{row.lr_ref} · {row.receiver_name || "Receiver missing"}</strong>
+                <span className="block text-xs text-muted">
+                  {kind === "overdue-promise"
+                    ? `Promised ${dmy(row.promised_date)} · ${money(row.outstanding)} due`
+                    : `${row.trip_ref || "Trip"} · Bhada not entered`}
+                </span>
+              </div>
+              {kind === "overdue-promise"
+                ? <button type="button" className="btn-s min-h-10 shrink-0"
+                  onClick={() => openQueueFollowup(row)}>Review follow-up</button>
+                : <button type="button" className="btn-s min-h-10 shrink-0"
+                  onClick={() => openUnpricedReceipt(row)}>Open receipt to price</button>}
+            </li>)}
+          </ol> : <p className="rounded-lg bg-white p-3 text-sm font-medium text-muted">
+            No overdue promises or unpriced receipts need review.
+          </p>}
+        </Card>
         <section aria-label="Finance overview" className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(16rem,0.8fr)]">
           <Card className="relative overflow-hidden border-brand-200 bg-gradient-to-br from-white via-white to-brand-50 p-5 sm:p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
@@ -419,7 +481,8 @@ export default function BookingFinance({ user }) {
                 onChange={(event) => { setRowFilter(event.target.value); setRowPage(0); }}>
                 <option value="all">All receipts</option>
                 <option value="outstanding">Outstanding only</option>
-                <option value="overdue">Overdue promises</option>
+                <option value="overdue-promise">Overdue promised date</option>
+                <option value="overdue">Overdue by age or promise</option>
                 <option value="unfollowed">Needs follow-up</option>
                 <option value="unpriced">Bhada not entered</option>
                 <option value="order-check">Order check pending</option>

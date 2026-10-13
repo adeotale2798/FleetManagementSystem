@@ -88,6 +88,22 @@ describe("SiteConsole fetch cycles", () => {
     expect(api.get.mock.calls.filter(([path]) => path === "/sites/site-b/trip-resources")).toHaveLength(1);
   });
 
+  it("shows saved party suggestion management only in owner Booking setup", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <SiteConsole user={{ role: "owner" }} adminOnly />
+        </MemoryRouter>,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Saved sender and receiver suggestions");
+    expect(api.get.mock.calls.some(([path]) => path === "/sites")).toBe(true);
+    expect(api.get.mock.calls.some(([path]) => path === "/sites/site-a/party-names")).toBe(false);
+  });
+
   it("shows shared vehicle and driver choices to a manager creating a booking", async () => {
     api.get.mockImplementation((path) => {
       if (path === "/sites") return Promise.resolve({ data: [sites[0]] });
@@ -361,7 +377,7 @@ describe("SiteConsole fetch cycles", () => {
     expect(container.textContent).toContain("Unticked actions are unavailable to this manager at this site.");
   });
 
-  it("saves receipt controls, receipt fee and overdue-day settings", async () => {
+  it("saves grouped receipt controls and keeps owner dashboard reminders off by default", async () => {
     await act(async () => {
       root.render(
         <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
@@ -376,13 +392,21 @@ describe("SiteConsole fetch cycles", () => {
         .startsWith("Booking settings"));
     await act(async () => { controls.open = true; });
     expect(controls.open).toBe(true);
-    expect(controls.textContent).toContain("1. Printed receipt header");
-    expect(controls.textContent).toContain("2. Receipt defaults");
-    expect(controls.textContent).toContain("3. Optional contact details");
-    expect(controls.textContent).toContain("4. Suggested goods names");
+    expect(controls.textContent).toContain("Receipt appearance");
+    expect(controls.textContent).toContain("Receipt and name defaults");
+    expect(controls.textContent).toContain("Optional receipt contact fields");
+    expect(controls.textContent).toContain("Suggested goods");
     expect(controls.textContent).toContain("Packaging & Units");
     expect(controls.textContent).toContain("These switches apply to every site.");
     expect(controls.querySelectorAll('[aria-label^="Receipt branch name "]')).toHaveLength(3);
+    const attentionEnabled = controls.querySelector('[aria-label="Show owner needs-attention reminders"]');
+    expect(attentionEnabled.checked).toBe(false);
+    await act(async () => { attentionEnabled.click(); });
+    expect(attentionEnabled.checked).toBe(true);
+    const hindiPartyNames = controls.querySelector('[aria-label="Show Hindi party-name fields on receipts"]');
+    expect(hindiPartyNames.checked).toBe(true);
+    await act(async () => { hindiPartyNames.click(); });
+    expect(hindiPartyNames.checked).toBe(false);
     const printSize = controls.querySelector('[aria-label="Receipt printer paper size"]');
     expect(printSize.value).toBe("default");
     printSize.value = "58mm";
@@ -520,6 +544,8 @@ describe("SiteConsole fetch cycles", () => {
           aliases: expect.arrayContaining(["thaila", "jhola"]),
         })],
         receipt_controls: expect.objectContaining({
+          party_name_hindi_enabled: false,
+          owner_attention_enabled: true,
           receipt_language: "english",
           receipt_print_size: "58mm",
           receipt_fee: "5.00",

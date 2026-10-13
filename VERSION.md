@@ -21,9 +21,72 @@ New features and architecture changes also require updates to [APP_SUMMARY.md](A
 
 ## Current version
 
-**v1.34.1** — 12 October 2026
+**v1.42.0** — 13 October 2026
 
 ## Changelog
+
+### v1.42.0 — 13 October 2026
+
+- **Hindi name pronunciation:** The common English word/name “New” now uses the phonetic Hinglish spelling “न्यू” instead of generic transliteration “नेव” in receipt fields, party display, and ledger exports. Full verified site dictionary entries still take priority, and users can continue correcting other words in the editable Hindi field.
+- **Verification:** Added frontend and backend assertions for “New” and “New Payal Traders”.
+
+### v1.41.0 — 13 October 2026
+
+- **Opt-in owner dashboard reminders:** The site-level “Needs attention” panel is now off by default. Owners can enable it from Booking setup; when disabled, the dashboard does not request the panel's finance/open-trip data.
+- **Clearer Booking setup:** Settings are grouped and described by task, with site/global scope clarified and a persistent save action for the selected site's settings. Existing setting values and save behavior are retained.
+- **Verification:** Added coverage for the default-off dashboard setting, opt-in display/data loading, setting persistence, and site control defaults.
+
+### v1.40.0 — 13 October 2026
+
+- **Editable Hindi party names:** Owners can enable/disable the optional Hindi sender/receiver inputs per site. When enabled, fields fill from the site's Hindi dictionary and transliteration as the English name is typed; staff can paste or enter the correct Devanagari spelling. The earlier one-off pronunciation for “New Payal Traders” is now an example the operator can correct and save, rather than a hardcoded spelling.
+- **Shared corrections:** After the receipt saves, a corrected spelling is added or updated in the site's Hindi dictionary and audited. It then applies across that site's receipt lists/prints, ledger displays/prints, and exports. The saved English identity is unchanged. If sharing the correction fails after the receipt was saved, the UI explicitly reports that partial outcome.
+- **Verification:** Added coverage for English-to-Hindi auto-fill, manual correction and dictionary reuse, site setting behavior, audited idempotent dictionary updates, and Devanagari validation.
+
+### v1.39.1 — 13 October 2026
+
+- **Party-name spelling:** Hindi display now renders “New Payal Traders” as “न्यू पायल ट्रेडर्स”; “New” is phonetic Hinglish (“न्यू”), not a translated “नया”.
+- **Receipt-to-ledger date:** Opening Ledger from Receipts now carries forward the selected trip's operating date so the matching day's ledger opens by default.
+- **Verification:** Added formatter and receipt-to-ledger date regression tests.
+
+### v1.39.0 — 13 October 2026
+
+- **Clearer booking save and connection state:** Booking shows browser/backend connectivity and distinguishes offline requests that were not sent from saves whose server outcome is uncertain. Existing idempotent retry keeps ambiguous receipt creation safe.
+- **Owner action queue:** Booking Finance highlights overdue promised payments and active receipts missing Bhada, with direct links to the existing follow-up and receipt-edit workflows. Opening a receipt from the queue is read-only until the owner explicitly saves.
+- **Daily handover review:** Owners can review date-scoped trips, receipt and collection totals, outstanding amounts, unpriced receipts, unresolved order checks, and print/save a PDF. The handover is read-only; it does not post payments or close trips.
+- **Operations and recovery guidance:** Added a MongoDB plus uploads backup/isolated-restore runbook and corresponding architecture, product and maintainer guidance. No backup or production restore is run by the application.
+- **Verification:** Focused booking tests cover offline/uncertain states, Finance navigation, and handover review/printing. Physical-device/operator observation and a real isolated restore drill remain operational follow-ups.
+
+### v1.38.0 — 13 October 2026
+
+- **Faster, safer receipt entry:** A clean and repeat receipt form focuses Receiver. Save-in-progress and uncertain outcomes are explicit; an uncertain create locks its details and retries the exact original request and idempotency key to avoid duplicate receipts.
+- **Owner Dashboard attention:** Owners can review overdue promised balances, active receipts missing Bhada, and closable open trips for the selected site. Finance items open exact filters; open trips open the existing closeout review. Site-manager dashboard behavior is unchanged.
+- **Verification:** Focused frontend tests cover keyboard-first autofocus, identical request/key on retry, attention filtering and direct actions. Physical-device/operator timing and observation remain to be conducted.
+
+### v1.37.0 — 13 October 2026
+
+- **Owner-managed party suggestions:** Booking setup now lets an owner search the selected site's sender/receiver suggestions by prefix, correct spellings and receiver phones, or retire bad entries. Corrections and retirements are written to the site audit log. Retired and superseded spellings are suppressed from historical receipt suggestions without altering existing receipts or deleting audit history.
+- **Verification:** Expanded tests cover management authorization, correct/retire audit events, phone validation, suppression of names that otherwise reappear from legacy receipts, the 50-result recent-first cap and narrower-prefix lookup, tenant/site isolation, duplicate-write recovery, and mobile receiver-confirmation scrolling.
+
+### v1.36.1 — 13 October 2026
+
+- **Recent and reliable party suggestions:** Sender and receiver suggestions now rank the 50 visible matches by most recent use across both the saved registry and receipt history. When more prefix matches exist, the form tells users to type more letters to narrow the search. Concurrent first saves recover from a unique-index upsert race; later receiver phone updates replace the saved number without blank edits clearing it.
+- **Verification:** Added coverage for blank/whitespace names, case/spacing deduplication, sender/receiver role separation, phone updates, concurrent saves, suggestion persistence across requests, tenant/site isolation, recent-first ordering, and receiver-prompt scrolling at a mobile viewport.
+
+### v1.36.0 — 13 October 2026
+
+- **Saved site party-name suggestions:** Successful receipt creation and name edits now upsert sender and receiver names into a tenant/site-scoped suggestion registry, deduplicated by party role and normalized spelling. Existing receipt history remains searchable so older names continue to appear without a data migration. Suggestions remain prefix-filtered and capped at 50 per role for a usable dropdown.
+- **Receiver match prompt visibility:** When saving a receipt requires a same-receiver decision, the form scrolls the prompt into view. Confirmation continues to apply only to receivers and keeps existing identity/grouping behavior.
+- **Verification:** Added coverage for site-scoped name persistence, registry/history suggestion merging, and scrolling to receiver confirmation.
+
+### v1.35.0 — 13 October 2026
+
+- **Site-specific party-name translations:** Booking settings already let owners maintain English/Hinglish-to-Hindi word and phrase translations. Those verified entries now apply to sender/receiver names across receipt lists, receipt prints, ledger screens, ledger prints, and Excel exports. Individual verified Hindi spellings still take priority; unmatched text uses phonetic transliteration, and original party names remain unchanged.
+- **Verification:** Added frontend/backend coverage for per-site word and full-phrase overrides, including ledger display and Excel conversion. No data migration is required.
+
+### v1.34.2 — 13 October 2026
+
+- **Party-name spelling correction:** Added the Hindi business-name spellings “Trader” → “ट्रेडर” and “Traders” → “ट्रेडर्स” to the receipt/ledger formatter and Excel export converter. Original names remain unchanged; saved verified Hindi spellings still take precedence.
+- **Verification:** Added frontend and backend regression coverage for “Kasva Traders”.
 
 ### v1.34.1 — 12 October 2026
 
